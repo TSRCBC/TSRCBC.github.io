@@ -5,9 +5,19 @@
   const CFG = window.CHINON_CONFIG;
   const $ = (s) => document.querySelector(s);
   const statusText = $('#statusText');
-  const STORAGE_KEY = 'chinon-wixlike-v5';
-  const INIT_KEY = 'chinon-wixlike-v5-init';
+  const STORAGE_KEY = 'chinon-warm-v7';
+  const INIT_KEY = 'chinon-warm-v7-init';
   const SNAPSHOT_ATTR = 'data-chinon-move-snapshot';
+  const SITE_PAGES = [
+    { file:'index.html', name:'首頁' },
+    { file:'about.html', name:'關於奇農' },
+    { file:'craft.html', name:'製茶堅持' },
+    { file:'gaba.html', name:'GABA桑茶' },
+    { file:'maca.html', name:'秘魯瑪卡' },
+    { file:'certificates.html', name:'檢測證書' },
+    { file:'info.html', name:'相關資訊' },
+    { file:'contact.html', name:'聯繫我們' }
+  ];
 
   const editor = grapesjs.init({
     container: '#gjs',
@@ -652,34 +662,49 @@
   }
 
   async function loadLive({ask=true}={}) {
-    if (ask && !confirm('重新載入會用 GitHub Pages 上的正式首頁覆蓋目前瀏覽器內的編輯內容。繼續？')) return;
-    setStatus('正在載入正式網站…');
+    if (ask && !confirm('重新載入會用 GitHub Pages 上的正式網站覆蓋目前瀏覽器內的編輯內容。繼續？')) return;
+    setStatus('正在載入完整網站…');
 
-    let body = CFG.fallbackBody;
     let css = CFG.fallbackCss;
-    try {
-      const html = await fetchText(`../index.html?t=${Date.now()}`);
-      const doc = new DOMParser().parseFromString(html,'text/html');
-      doc.querySelectorAll('script').forEach(el=>el.remove());
-      body = doc.body?.innerHTML || body;
-    } catch {}
     try {
       css = await fetchText(`../styles.css?t=${Date.now()}`);
     } catch {}
 
+    const loaded = [];
+    for (const item of SITE_PAGES) {
+      try {
+        const source = await fetchText(`../${item.file}?t=${Date.now()}`);
+        const doc = new DOMParser().parseFromString(source,'text/html');
+        doc.querySelectorAll('script').forEach(el=>el.remove());
+        doc.querySelectorAll('link[rel="stylesheet"]').forEach(el=>el.remove());
+        loaded.push({ ...item, body: doc.body?.innerHTML || '' });
+      } catch {
+        if (item.file === 'index.html') loaded.push({ ...item, body: CFG.fallbackBody });
+      }
+    }
+
     const pm = editor.Pages;
-    [...pm.getAll()].slice(1).forEach(p=>pm.remove(p));
-    const first = pm.getAll()[0] || pm.add({name:'首頁',component:''});
-    first.set('name','首頁');
-    first.set('chinonFile','index.html');
+    const existing = [...pm.getAll()];
+    const first = existing[0] || pm.add({name:'首頁',component:''});
+    existing.slice(1).forEach(p=>pm.remove(p));
+
+    const firstData = loaded[0] || {file:'index.html',name:'首頁',body:CFG.fallbackBody};
+    first.set('name',firstData.name);
+    first.set('chinonFile',firstData.file);
     pm.select(first);
-    editor.setComponents(body);
+    editor.setComponents(firstData.body);
+
+    for (const item of loaded.slice(1)) {
+      pm.add({name:item.name,chinonFile:item.file,component:item.body});
+    }
+
     editor.setStyle(css);
+    pm.select(first);
     localStorage.setItem(INIT_KEY,'1');
     await editor.store();
     editor.clearDirtyCount();
     refreshPages();
-    setStatus('正式首頁已載入。');
+    setStatus('溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
   }
 
   // -------- code --------
