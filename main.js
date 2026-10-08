@@ -1,1 +1,2 @@
-document.querySelector('.menu')?.addEventListener('click',()=>document.querySelector('.links')?.classList.toggle('open'));
+// CHINON website starter.
+// Interactive behavior can be added later if needed.
