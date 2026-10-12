@@ -76,12 +76,38 @@
                 { id: '"Times New Roman", serif', label: 'Times New Roman' }
               ]
             },
-            { property: 'font-size', name: '字體大小' },
+            {
+              property: 'font-size',
+              name: '字體大小',
+              type: 'number',
+              units: ['px', 'rem', 'em', '%', 'vw'],
+              default: '16px',
+              min: 6,
+              max: 300
+            },
             { property: 'font-weight', name: '粗細' },
             { property: 'font-style', name: '斜體' },
             { property: 'text-decoration', name: '文字裝飾' },
-            { property: 'line-height', name: '行高' },
-            { property: 'letter-spacing', name: '字距' },
+            {
+              property: 'line-height',
+              name: '行高',
+              type: 'number',
+              units: ['', 'px', 'em', 'rem', '%'],
+              default: '1.4',
+              min: 0.5,
+              max: 10,
+              step: 0.05
+            },
+            {
+              property: 'letter-spacing',
+              name: '字距',
+              type: 'number',
+              units: ['px', 'em', 'rem'],
+              default: '0px',
+              min: -20,
+              max: 100,
+              step: 0.1
+            },
             { property: 'color', name: '文字顏色' },
             { property: 'text-align', name: '對齊' },
             { property: 'text-shadow', name: '文字陰影', type: 'text' }
@@ -122,7 +148,93 @@
 
   function setStatus(msg) { statusText.textContent = msg; }
 
-  function ensureCanvasBase() {
+  let lastSiteCss = '';
+
+  function siteRootUrl() {
+    return new URL('../', window.location.href);
+  }
+
+  function toSiteRootAssetUrl(value) {
+    if (!value) return value;
+    const raw = String(value).trim();
+
+    // 完整網址、data/blob/hash 不碰。
+    if (/^(?:https?:|data:|blob:|mailto:|tel:|#|\/\/)/i.test(raw)) return raw;
+
+    // 只把本站 assets 路徑固定到網站根目錄，避免 /editor/assets/。
+    const cleaned = raw.replace(/^\.\//, '');
+    if (cleaned.startsWith('assets/')) return '/' + cleaned;
+    if (cleaned.startsWith('../assets/')) return '/' + cleaned.replace(/^\.\.\//, '');
+
+    return raw;
+  }
+
+  function normalizeHtmlAssetPaths(doc) {
+    if (!doc) return;
+
+    doc.querySelectorAll('[src]').forEach(el => {
+      const v = el.getAttribute('src');
+      const n = toSiteRootAssetUrl(v);
+      if (n !== v) el.setAttribute('src', n);
+    });
+
+    doc.querySelectorAll('[poster]').forEach(el => {
+      const v = el.getAttribute('poster');
+      const n = toSiteRootAssetUrl(v);
+      if (n !== v) el.setAttribute('poster', n);
+    });
+
+    doc.querySelectorAll('[srcset]').forEach(el => {
+      const srcset = el.getAttribute('srcset') || '';
+      const normalized = srcset.split(',').map(part => {
+        const bits = part.trim().split(/\s+/);
+        if (!bits[0]) return part;
+        bits[0] = toSiteRootAssetUrl(bits[0]);
+        return bits.join(' ');
+      }).join(', ');
+      el.setAttribute('srcset', normalized);
+    });
+
+    doc.querySelectorAll('[style]').forEach(el => {
+      const style = el.getAttribute('style') || '';
+      const normalized = style.replace(
+        /url\(\s*(['"]?)(?:\.\/|\.\.\/)?(assets\/[^)'"]+)\1\s*\)/gi,
+        (_m, quote, path) => `url(${quote}/${path}${quote})`
+      );
+      if (normalized !== style) el.setAttribute('style', normalized);
+    });
+  }
+
+  function normalizeCssAssetPaths(cssText) {
+    return String(cssText || '').replace(
+      /url\(\s*(['"]?)(?:\.\/|\.\.\/)?(assets\/[^)'"]+)\1\s*\)/gi,
+      (_m, quote, path) => `url(${quote}/${path}${quote})`
+    );
+  }
+
+  function applyRootVariables(cssText) {
+    const doc = editor.Canvas.getDocument?.();
+    if (!doc?.documentElement) return;
+
+    // GrapesJS 的 CSS parser 對 :root custom properties 不一定穩定。
+    // 直接把正式網站 :root 變數寫到 Canvas 的 documentElement，確保
+    // var(--olive) 等在編輯器內與正式網站一致。
+    const match = String(cssText || '').match(/:root\s*\{([\s\S]*?)\}/i);
+    if (!match) return;
+
+    const declarations = match[1].split(';');
+    for (const declaration of declarations) {
+      const idx = declaration.indexOf(':');
+      if (idx < 0) continue;
+      const name = declaration.slice(0, idx).trim();
+      const value = declaration.slice(idx + 1).trim();
+      if (name.startsWith('--') && value) {
+        doc.documentElement.style.setProperty(name, value);
+      }
+    }
+  }
+
+  function ensureCanvasEnvironment() {
     const doc = editor.Canvas.getDocument?.();
     if (!doc || !doc.head) return;
 
@@ -132,11 +244,14 @@
       base.setAttribute('data-chinon-editor-base', '1');
       doc.head.insertBefore(base, doc.head.firstChild);
     }
+    base.href = siteRootUrl().href;
 
-    // /editor/ 裡的畫布應該以正式網站根目錄作為相對路徑基準。
-    // 例如 assets/chinon-logo.png 會解析成 /assets/chinon-logo.png，
-    // 而不是錯誤的 /editor/assets/chinon-logo.png。
-    base.href = new URL('../', window.location.href).href;
+    if (lastSiteCss) applyRootVariables(lastSiteCss);
+  }
+
+  // 保留舊函式名稱，讓既有程式碼仍可呼叫。
+  function ensureCanvasBase() {
+    ensureCanvasEnvironment();
   }
 
 
@@ -851,7 +966,7 @@
     };
 
     updateOverlay();
-    setStatus('Canva文字縮放已開啟：拖四個角改字體大小；拖左右把手只改文字框寬度。');
+    setStatus('文字縮放框已開啟：直接拖四角放大/縮小字體；拖左右把手只改文字框寬度。');
     return true;
   }
 
@@ -970,6 +1085,8 @@
     try {
       css = await fetchText(`../styles.css?t=${Date.now()}`);
     } catch {}
+    css = normalizeCssAssetPaths(css);
+    lastSiteCss = css;
 
     const loaded = [];
     for (const item of SITE_PAGES) {
@@ -978,6 +1095,7 @@
         const doc = new DOMParser().parseFromString(source,'text/html');
         doc.querySelectorAll('script').forEach(el=>el.remove());
         doc.querySelectorAll('link[rel="stylesheet"]').forEach(el=>el.remove());
+        normalizeHtmlAssetPaths(doc);
         loaded.push({ ...item, body: doc.body?.innerHTML || '' });
       } catch {
         if (item.file === 'index.html') loaded.push({ ...item, body: CFG.fallbackBody });
@@ -1001,11 +1119,13 @@
 
     editor.setStyle(css);
     pm.select(first);
+    ensureCanvasEnvironment();
+    requestAnimationFrame(ensureCanvasEnvironment);
     localStorage.setItem(INIT_KEY,'1');
     await editor.store();
     editor.clearDirtyCount();
     refreshPages();
-    setStatus('V7.3 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
+    setStatus('V7.6 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
   }
 
   // -------- code --------
@@ -1200,16 +1320,46 @@ ${bodyHtml}
   editor.on('page:select',()=>{
     removeTextResizeOverlay();
     refreshPages();
+    requestAnimationFrame(ensureCanvasEnvironment);
+    setTimeout(ensureCanvasEnvironment, 80);
   });
+
+  // GrapesJS 重新建立 iframe/frame 時，base 與 :root 變數可能會被清掉。
+  // 每次 frame load 都補回來，避免 Logo/按鈕樣式「一下有、一下不見」。
+  editor.on('canvas:frame:load',()=>{
+    ensureCanvasEnvironment();
+    requestAnimationFrame(ensureCanvasEnvironment);
+  });
+  let autoTextResizeTimer = null;
+
   editor.on('component:selected',(c)=>{
     if (moveState.component && moveState.component !== c) stopMove();
 
-    if (textResizeState.component && textResizeState.component !== c) {
+    if (autoTextResizeTimer) {
+      clearTimeout(autoTextResizeTimer);
+      autoTextResizeTimer = null;
+    }
+
+    const target = textResizeTarget(c);
+
+    if (target) {
+      // 文字不必再按按鈕：選到文字後直接顯示 Canva 式控制框。
+      autoTextResizeTimer = setTimeout(()=>{
+        if (editor.getSelected() !== c && editor.getSelected() !== target) return;
+        openCanvaTextResize(editor.getSelected() || target);
+      }, 30);
+
+      const name = target.getName?.() || target.get('tagName') || '文字';
+      setStatus(`已選取：${name}。直接拖四角放大/縮小字體；拖左右只改文字框寬度。`);
+      return;
+    }
+
+    if (textResizeState.component) {
       removeTextResizeOverlay();
     }
 
     const name = c.getName?.() || c.get('tagName') || '元件';
-    setStatus(`已選取：${name}。文字可按「Canva縮放」直接拖框調字體大小。`);
+    setStatus(`已選取：${name}。非文字元件可用上方「文字縮放」按鈕啟用一般尺寸縮放。`);
   });
 
   editor.on('load',async()=>{
@@ -1219,6 +1369,6 @@ ${bodyHtml}
       localStorage.setItem(INIT_KEY,'1');
     }
     refreshPages();
-    setStatus('V7.3 已就緒。文字可雙擊修改；按「Canva縮放」可拖框縮放字體。');
+    setStatus('V7.6 已就緒。文字可雙擊修改；按「Canva縮放」可拖框縮放字體。');
   });
 })();
