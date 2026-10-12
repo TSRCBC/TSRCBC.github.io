@@ -1345,7 +1345,7 @@
     await editor.store();
     editor.clearDirtyCount();
     refreshPages();
-    setStatus('V7.7 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
+    setStatus('V7.8 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
   }
 
   // -------- code --------
@@ -1370,6 +1370,294 @@
       setStatus(`${label} 已複製。`);
     } catch {
       alert('請在文字框 Ctrl+A → Ctrl+C 複製。');
+    }
+  }
+
+
+  // -------- V7.8 direct GitHub publish --------
+  const PUBLISH_SETTINGS_KEY = 'chinon-publish-settings-v1';
+  const PUBLISH_TOKEN_KEY = 'chinon-github-token-session';
+
+  function publishProgress(message, type='') {
+    const el = $('#publishProgress');
+    if (!el) return;
+    el.textContent = message;
+    el.classList.remove('ok','error');
+    if (type) el.classList.add(type);
+  }
+
+  function loadPublishSettings() {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(PUBLISH_SETTINGS_KEY) || '{}'); } catch {}
+
+    $('#publishOwner').value = saved.owner || 'TSRCBC';
+    $('#publishRepo').value = saved.repo || 'TSRCBC.github.io';
+    $('#publishBranch').value = saved.branch || 'main';
+    $('#publishToken').value = sessionStorage.getItem(PUBLISH_TOKEN_KEY) || '';
+  }
+
+  function savePublishSettings() {
+    const owner = $('#publishOwner').value.trim();
+    const repo = $('#publishRepo').value.trim();
+    const branch = $('#publishBranch').value.trim() || 'main';
+    const token = $('#publishToken').value.trim();
+
+    localStorage.setItem(PUBLISH_SETTINGS_KEY, JSON.stringify({ owner, repo, branch }));
+
+    if (token) sessionStorage.setItem(PUBLISH_TOKEN_KEY, token);
+    else sessionStorage.removeItem(PUBLISH_TOKEN_KEY);
+
+    return { owner, repo, branch, token };
+  }
+
+  function openPublishDialog() {
+    loadPublishSettings();
+    publishProgress('準備發布。這會直接更新 GitHub main branch 與正式網站。');
+    $('#publishDialog').showModal();
+  }
+
+  function bytesToBase64(bytes) {
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+  }
+
+  async function dataUrlToBase64(dataUrl) {
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    return {
+      mime: blob.type || 'application/octet-stream',
+      base64: bytesToBase64(bytes)
+    };
+  }
+
+  async function buildPublishFiles() {
+    const files = new Map();
+    let imgCounter = 1;
+
+    for (const page of editor.Pages.getAll()) {
+      const root = page.getMainComponent();
+      let html = cleanSnapshotAttrs(editor.getHtml({component:root}));
+      const doc = new DOMParser().parseFromString(`<body>${html}</body>`,'text/html');
+
+      for (const img of [...doc.body.querySelectorAll('img[src^="data:"]')]) {
+        const src = img.getAttribute('src');
+        const parsed = await dataUrlToBase64(src);
+        const ext = extFromMime(parsed.mime);
+        const name = `image-${imgCounter++}.${ext}`;
+        const path = `assets/uploads/${name}`;
+        files.set(path, { content: parsed.base64, encoding:'base64' });
+        img.setAttribute('src', path);
+      }
+
+      html = doc.body.innerHTML;
+      files.set(pageFile(page), {
+        content: docForPage(page, html),
+        encoding:'utf-8'
+      });
+    }
+
+    let css = editor.getCss() || '';
+    if (!css.includes('fonts.googleapis.com')) {
+      css = `@import url('${CFG.fontUrl}');\n\n` + css;
+    }
+
+    files.set('styles.css', { content:css, encoding:'utf-8' });
+    files.set('main.js', { content:'// CHINON site script\n', encoding:'utf-8' });
+
+    return files;
+  }
+
+  async function githubApi(url, token, options={}) {
+    const headers = {
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Authorization': `Bearer ${token}`,
+      ...(options.headers || {})
+    };
+
+    let res;
+    try {
+      res = await fetch(url, { ...options, headers });
+    } catch (error) {
+      throw new Error(`無法連線 GitHub API：${error.message}`);
+    }
+
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const data = await res.json();
+        detail = data?.message || JSON.stringify(data);
+      } catch {
+        detail = await res.text();
+      }
+
+      if (res.status === 401) {
+        throw new Error('GitHub Token 無效或已過期。請重新建立 Token。');
+      }
+      if (res.status === 403) {
+        throw new Error('GitHub 拒絕發布。請確認 Token 已授權此 Repository，且 Contents 權限為 Read and write。');
+      }
+      if (res.status === 404) {
+        throw new Error('找不到 Repository / Branch，或 Token 沒有這個 Repository 的存取權。');
+      }
+
+      throw new Error(`GitHub API ${res.status}：${detail}`);
+    }
+
+    if (res.status === 204) return null;
+    return await res.json();
+  }
+
+  async function createGithubBlob(owner, repo, token, file) {
+    return githubApi(
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/blobs`,
+      token,
+      {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          content:file.content,
+          encoding:file.encoding === 'base64' ? 'base64' : 'utf-8'
+        })
+      }
+    );
+  }
+
+  async function publishToGithub() {
+    const button = $('#btnDoPublish');
+    const { owner, repo, branch, token } = savePublishSettings();
+
+    if (!owner || !repo || !branch || !token) {
+      publishProgress('請完整填寫 Owner、Repository、Branch 與 GitHub Token。', 'error');
+      return;
+    }
+
+    if (!confirm(`確定直接發布到 ${owner}/${repo} 的 ${branch} 分支？\n\n發布後 GitHub Pages 會重新部署正式網站。`)) {
+      return;
+    }
+
+    button.disabled = true;
+
+    try {
+      publishProgress('1/6 正在儲存目前編輯內容…');
+      await editor.store();
+      editor.clearDirtyCount();
+
+      publishProgress('2/6 正在整理網站檔案…');
+      const files = await buildPublishFiles();
+
+      publishProgress('3/6 正在讀取 GitHub 最新版本…');
+      const ref = await githubApi(
+        `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/ref/heads/${encodeURIComponent(branch)}`,
+        token
+      );
+      const parentSha = ref.object.sha;
+
+      const parentCommit = await githubApi(
+        `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/commits/${parentSha}`,
+        token
+      );
+      const baseTreeSha = parentCommit.tree.sha;
+
+      publishProgress(`4/6 正在上傳 ${files.size} 個網站檔案…`);
+      const entries = [];
+
+      let done = 0;
+      for (const [path, file] of files) {
+        const blob = await createGithubBlob(owner, repo, token, file);
+        entries.push({
+          path,
+          mode:'100644',
+          type:'blob',
+          sha:blob.sha
+        });
+        done += 1;
+        publishProgress(`4/6 正在上傳網站檔案… ${done}/${files.size}`);
+      }
+
+      // 找出已刪除的「根目錄 HTML 頁面」，發布時一起從網站移除。
+      // 404.html 保留，不碰 editor/、assets/ 或其他設定檔。
+      const existingTree = await githubApi(
+        `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${baseTreeSha}?recursive=1`,
+        token
+      );
+
+      const currentPaths = new Set(files.keys());
+      for (const item of existingTree.tree || []) {
+        if (
+          item.type === 'blob' &&
+          /^[^/]+\.html$/i.test(item.path) &&
+          item.path.toLowerCase() !== '404.html' &&
+          !currentPaths.has(item.path)
+        ) {
+          entries.push({
+            path:item.path,
+            mode:'100644',
+            type:'blob',
+            sha:null
+          });
+        }
+      }
+
+      publishProgress('5/6 正在建立 GitHub Commit…');
+      const tree = await githubApi(
+        `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees`,
+        token,
+        {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            base_tree:baseTreeSha,
+            tree:entries
+          })
+        }
+      );
+
+      const commit = await githubApi(
+        `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/commits`,
+        token,
+        {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            message:`Publish CHINON site ${new Date().toLocaleString('zh-TW')}`,
+            tree:tree.sha,
+            parents:[parentSha]
+          })
+        }
+      );
+
+      publishProgress('6/6 正在更新正式網站分支…');
+      await githubApi(
+        `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/refs/heads/${encodeURIComponent(branch)}`,
+        token,
+        {
+          method:'PATCH',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            sha:commit.sha,
+            force:false
+          })
+        }
+      );
+
+      publishProgress(
+        `發布成功！\nCommit：${commit.sha.slice(0,7)}\nGitHub Pages 通常還需要一點時間重新部署。`,
+        'ok'
+      );
+      setStatus('網站已送出 GitHub 發布，等待 GitHub Pages 部署。');
+
+    } catch (error) {
+      console.error(error);
+      publishProgress(`發布失敗：${error.message}`, 'error');
+      setStatus('發布失敗，請查看發布視窗中的錯誤訊息。');
+    } finally {
+      button.disabled = false;
     }
   }
 
@@ -1524,10 +1812,17 @@ ${bodyHtml}
   $('#btnSave').addEventListener('click',async()=>{
     await editor.store();
     editor.clearDirtyCount();
-    setStatus('已儲存在這台瀏覽器。');
+    setStatus('草稿已儲存在這台瀏覽器。尚未發布到正式網站。');
   });
 
   $('#btnReload').addEventListener('click',()=>loadLive({ask:true}));
+  $('#btnPublish').addEventListener('click',openPublishDialog);
+  $('#btnDoPublish').addEventListener('click',publishToGithub);
+  $('#btnForgetToken').addEventListener('click',()=>{
+    sessionStorage.removeItem(PUBLISH_TOKEN_KEY);
+    $('#publishToken').value = '';
+    publishProgress('目前分頁中的 GitHub Token 已清除。');
+  });
   $('#btnExport').addEventListener('click',exportZip);
 
   document.querySelectorAll('[data-device]').forEach(btn=>{
@@ -1591,6 +1886,6 @@ ${bodyHtml}
       localStorage.setItem(INIT_KEY,'1');
     }
     refreshPages();
-    setStatus('V7.7 已就緒。文字可雙擊修改；按「Canva縮放」可拖框縮放字體。');
+    setStatus('V7.8 已就緒。文字可雙擊修改；按「Canva縮放」可拖框縮放字體。');
   });
 })();

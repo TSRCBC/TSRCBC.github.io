@@ -111,3 +111,49 @@ dialog::backdrop{background:rgba(0,0,0,.65)}
   outline: 2px solid rgba(217,209,255,.45);
   outline-offset: 1px;
 }
+
+
+/* V7.8 direct GitHub publish */
+button.direct-publish{
+  background:#0c8f5b;
+  border-color:#16b778;
+  font-weight:700;
+}
+button.direct-publish:hover{filter:brightness(1.08)}
+.publish-note{
+  margin:14px;
+  padding:12px 14px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:#1d2027;
+  color:#d9deea;
+  font-size:13px;
+  line-height:1.65;
+}
+.publish-grid{padding:0 14px 14px}
+.publish-grid input[type="password"]{
+  width:100%;
+  background:#111318;
+  color:#f3f5f8;
+  border:1px solid var(--line);
+  border-radius:6px;
+  padding:9px 10px;
+}
+.publish-progress{
+  margin:0 14px 14px;
+  padding:10px 12px;
+  border-radius:8px;
+  background:#111318;
+  border:1px solid var(--line);
+  color:#bfc7d5;
+  font-size:12px;
+  white-space:pre-wrap;
+}
+.publish-progress.ok{
+  border-color:#27845c;
+  color:#a9e3c7;
+}
+.publish-progress.error{
+  border-color:#a44949;
+  color:#ffb6b6;
+}

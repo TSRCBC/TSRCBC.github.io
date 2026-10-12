@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>CHINON 自助網站編輯器 V7.7</title>
+  <title>CHINON 自助網站編輯器 V7.8</title>
   <link rel="stylesheet" href="https://unpkg.com/grapesjs@0.23.6/dist/css/grapes.min.css">
   <link rel="stylesheet" href="editor.css">
 </head>
 <body>
   <header class="appbar">
     <div class="brand">
-      <strong>CHINON 編輯器 V7.7</strong>
+      <strong>CHINON 編輯器 V7.8</strong>
       <span>溫暖生活版・保留舊內容・Wix-like 基礎工具</span>
     </div>
 
@@ -60,9 +60,10 @@
       <button id="btnUndo">↶ Undo</button>
       <button id="btnRedo">↷ Redo</button>
       <button id="btnCode">HTML / CSS</button>
-      <button id="btnSave">儲存</button>
+      <button id="btnSave">儲存草稿</button>
       <button id="btnReload">重新載入</button>
-      <button id="btnExport" class="publish">下載網站 ZIP</button>
+      <button id="btnPublish" class="publish direct-publish">🚀 發布網站</button>
+      <button id="btnExport">下載備份 ZIP</button>
     </div>
 
     <div class="devicebar">
@@ -73,7 +74,7 @@
   </header>
 
   <div id="statusbar">
-    <span id="statusText">V7.7 啟動中…</span>
+    <span id="statusText">V7.8 啟動中…</span>
     <span>文字選取後自動出現縮放框：拖四角直接改字體大小；拖左右只改文字框寬度。</span>
   </div>
 
@@ -171,6 +172,51 @@
       <div class="dialog-actions">
         <button value="cancel">取消</button>
         <button id="btnApplyQuickStyle" value="default" class="primary">套用</button>
+      </div>
+    </form>
+  </dialog>
+
+
+  <dialog id="publishDialog">
+    <form method="dialog" class="dialog-form wide" id="publishForm">
+      <div class="dialog-head">
+        <strong>直接發布到 GitHub</strong>
+        <button value="cancel">✕</button>
+      </div>
+
+      <div class="publish-note">
+        第一次發布需要 GitHub Fine-grained Personal Access Token。<br>
+        建議只授權 <strong>TSRCBC/TSRCBC.github.io</strong>，權限只開
+        <strong>Contents：Read and write</strong>。Token 只保存在目前瀏覽器分頁的
+        sessionStorage，關閉分頁後會消失，不會寫進網站或 ZIP。
+      </div>
+
+      <div class="style-grid publish-grid">
+        <label>GitHub 帳號 / Owner
+          <input id="publishOwner" type="text" value="TSRCBC" autocomplete="off">
+        </label>
+
+        <label>Repository
+          <input id="publishRepo" type="text" value="TSRCBC.github.io" autocomplete="off">
+        </label>
+
+        <label>Branch
+          <input id="publishBranch" type="text" value="main" autocomplete="off">
+        </label>
+
+        <label>GitHub Token
+          <input id="publishToken" type="password" placeholder="github_pat_..." autocomplete="off">
+        </label>
+      </div>
+
+      <div id="publishProgress" class="publish-progress">
+        尚未發布。
+      </div>
+
+      <div class="dialog-actions">
+        <button id="btnForgetToken" type="button">清除 Token</button>
+        <button value="cancel">取消</button>
+        <button id="btnDoPublish" type="button" class="primary publish">確認發布</button>
       </div>
     </form>
   </dialog>
