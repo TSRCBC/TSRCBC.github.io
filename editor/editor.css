@@ -170,3 +170,28 @@ button.direct-publish:hover{filter:brightness(1.08)}
   font-size:12px;
   line-height:1.55;
 }
+
+
+/* V8.2 visual-first style manager */
+.gjs-sm-sector .gjs-field-select,
+.gjs-sm-sector .gjs-field-color,
+.gjs-sm-sector select{
+  min-height:32px;
+}
+.gjs-sm-sector .gjs-field-select select{
+  cursor:pointer;
+}
+.gjs-sm-sector .gjs-field-color{
+  min-height:34px;
+  border-radius:6px;
+  overflow:hidden;
+}
+.gjs-sm-sector .gjs-field-color input{
+  cursor:pointer;
+}
+.gjs-sm-sector .gjs-sm-property{
+  margin-bottom:8px;
+}
+.gjs-sm-sector .gjs-sm-label{
+  color:#e7ebf3;
+}

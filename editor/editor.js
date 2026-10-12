@@ -50,12 +50,145 @@
         {
           name: '位置／尺寸',
           open: true,
-          buildProps: [
-            'position','top','right','bottom','left','z-index',
-            'width','height','min-width','min-height','max-width','max-height',
-            'display','overflow','transform'
+          properties: [
+            {
+              property: 'position', name: '定位方式', type: 'select',
+              options: [
+                { id:'static', label:'靜態（一般）' },
+                { id:'relative', label:'相對定位' },
+                { id:'absolute', label:'絕對定位' },
+                { id:'fixed', label:'固定在畫面' },
+                { id:'sticky', label:'黏著定位' }
+              ]
+            },
+            {
+              property:'z-index', name:'圖層順序', type:'select',
+              options:[
+                {id:'auto',label:'自動'},
+                {id:'0',label:'0'},
+                {id:'1',label:'1'},
+                {id:'2',label:'2'},
+                {id:'5',label:'5'},
+                {id:'10',label:'10'},
+                {id:'20',label:'20'},
+                {id:'50',label:'50'},
+                {id:'100',label:'100'},
+                {id:'999',label:'最上層 999'}
+              ]
+            },
+            {
+              property:'top', name:'上方位置', type:'select',
+              options:[
+                {id:'auto',label:'自動'},{id:'-100px',label:'-100 px'},{id:'-50px',label:'-50 px'},
+                {id:'-20px',label:'-20 px'},{id:'-10px',label:'-10 px'},{id:'0',label:'0'},
+                {id:'10px',label:'10 px'},{id:'20px',label:'20 px'},{id:'50px',label:'50 px'},
+                {id:'100px',label:'100 px'},{id:'25%',label:'25%'},{id:'50%',label:'50%'}
+              ]
+            },
+            {
+              property:'right', name:'右方位置', type:'select',
+              options:[
+                {id:'auto',label:'自動'},{id:'-100px',label:'-100 px'},{id:'-50px',label:'-50 px'},
+                {id:'-20px',label:'-20 px'},{id:'-10px',label:'-10 px'},{id:'0',label:'0'},
+                {id:'10px',label:'10 px'},{id:'20px',label:'20 px'},{id:'50px',label:'50 px'},
+                {id:'100px',label:'100 px'},{id:'25%',label:'25%'},{id:'50%',label:'50%'}
+              ]
+            },
+            {
+              property:'bottom', name:'下方位置', type:'select',
+              options:[
+                {id:'auto',label:'自動'},{id:'-100px',label:'-100 px'},{id:'-50px',label:'-50 px'},
+                {id:'-20px',label:'-20 px'},{id:'-10px',label:'-10 px'},{id:'0',label:'0'},
+                {id:'10px',label:'10 px'},{id:'20px',label:'20 px'},{id:'50px',label:'50 px'},
+                {id:'100px',label:'100 px'},{id:'25%',label:'25%'},{id:'50%',label:'50%'}
+              ]
+            },
+            {
+              property:'left', name:'左方位置', type:'select',
+              options:[
+                {id:'auto',label:'自動'},{id:'-100px',label:'-100 px'},{id:'-50px',label:'-50 px'},
+                {id:'-20px',label:'-20 px'},{id:'-10px',label:'-10 px'},{id:'0',label:'0'},
+                {id:'10px',label:'10 px'},{id:'20px',label:'20 px'},{id:'50px',label:'50 px'},
+                {id:'100px',label:'100 px'},{id:'25%',label:'25%'},{id:'50%',label:'50%'}
+              ]
+            },
+            {
+              property:'width', name:'寬度', type:'select',
+              options:[
+                {id:'auto',label:'自動'},
+                {id:'fit-content',label:'依內容'},
+                {id:'25%',label:'25%'},{id:'33.333%',label:'1/3'},
+                {id:'50%',label:'50%'},{id:'66.667%',label:'2/3'},
+                {id:'75%',label:'75%'},{id:'100%',label:'100%'},
+                {id:'200px',label:'200 px'},{id:'300px',label:'300 px'},
+                {id:'400px',label:'400 px'},{id:'500px',label:'500 px'},
+                {id:'600px',label:'600 px'},{id:'800px',label:'800 px'}
+              ]
+            },
+            {
+              property:'height', name:'高度', type:'select',
+              options:[
+                {id:'auto',label:'自動'},
+                {id:'100px',label:'100 px'},{id:'150px',label:'150 px'},
+                {id:'200px',label:'200 px'},{id:'300px',label:'300 px'},
+                {id:'400px',label:'400 px'},{id:'500px',label:'500 px'},
+                {id:'600px',label:'600 px'},{id:'100vh',label:'滿版高度'}
+              ]
+            },
+            {
+              property:'min-width', name:'最小寬度', type:'select',
+              options:[
+                {id:'auto',label:'自動'},{id:'0',label:'0'},
+                {id:'200px',label:'200 px'},{id:'300px',label:'300 px'},
+                {id:'50%',label:'50%'},{id:'100%',label:'100%'}
+              ]
+            },
+            {
+              property:'max-width', name:'最大寬度', type:'select',
+              options:[
+                {id:'none',label:'不限'},{id:'320px',label:'320 px'},
+                {id:'480px',label:'480 px'},{id:'640px',label:'640 px'},
+                {id:'800px',label:'800 px'},{id:'1000px',label:'1000 px'},
+                {id:'1200px',label:'1200 px'},{id:'100%',label:'100%'}
+              ]
+            },
+            {
+              property:'display', name:'顯示方式', type:'select',
+              options:[
+                {id:'block',label:'區塊'},
+                {id:'inline',label:'行內'},
+                {id:'inline-block',label:'行內區塊'},
+                {id:'flex',label:'彈性排列 Flex'},
+                {id:'grid',label:'網格 Grid'},
+                {id:'none',label:'隱藏'}
+              ]
+            },
+            {
+              property:'overflow', name:'超出內容', type:'select',
+              options:[
+                {id:'visible',label:'顯示'},
+                {id:'hidden',label:'隱藏'},
+                {id:'auto',label:'需要時捲動'},
+                {id:'scroll',label:'永遠捲動'}
+              ]
+            },
+            {
+              property:'transform', name:'變形效果', type:'select',
+              options:[
+                {id:'none',label:'無'},
+                {id:'scale(0.8)',label:'縮小 80%'},
+                {id:'scale(0.9)',label:'縮小 90%'},
+                {id:'scale(1.1)',label:'放大 110%'},
+                {id:'scale(1.2)',label:'放大 120%'},
+                {id:'rotate(-5deg)',label:'向左轉 5°'},
+                {id:'rotate(5deg)',label:'向右轉 5°'},
+                {id:'rotate(-10deg)',label:'向左轉 10°'},
+                {id:'rotate(10deg)',label:'向右轉 10°'}
+              ]
+            }
           ]
         },
+
         {
           name: '文字',
           open: true,
@@ -65,81 +198,492 @@
               name: '字型',
               type: 'select',
               options: [
-                { id: '"Noto Sans TC", sans-serif', label: 'TW｜思源黑體' },
-                { id: '"Noto Serif TC", serif', label: 'TW｜思源宋體' },
-                { id: '"LXGW WenKai TC", serif', label: 'TW｜霞鶩文楷' },
-                { id: '"Iansui", cursive', label: 'TW｜芫荽體' },
-                { id: '"Klee One", cursive', label: 'TW｜Klee 手寫' },
-                { id: '"Zen Kurenaido", cursive', label: 'TW｜Zen 手寫' },
-                { id: '"Yuji Syuku", serif', label: 'TW｜Yuji 書寫' },
+                { id: '"Noto Sans TC", sans-serif', label: '思源黑體' },
+                { id: '"Noto Serif TC", serif', label: '思源宋體' },
+                { id: '"LXGW WenKai TC", serif', label: '霞鶩文楷' },
+                { id: '"Iansui", cursive', label: '芫荽體' },
+                { id: '"Klee One", cursive', label: 'Klee 手寫體' },
+                { id: '"Zen Kurenaido", cursive', label: 'Zen 手寫體' },
+                { id: '"Yuji Syuku", serif', label: 'Yuji 書寫體' },
                 { id: 'Arial, sans-serif', label: 'Arial' },
                 { id: '"Times New Roman", serif', label: 'Times New Roman' }
               ]
             },
             {
-              property: 'font-size',
-              name: '字體大小',
-              type: 'number',
-              units: ['px', 'rem', 'em', '%', 'vw'],
-              default: '16px',
-              min: 6,
-              max: 300
+              property:'font-size', name:'字體大小', type:'select',
+              options:[
+                {id:'12px',label:'12 px｜極小'},
+                {id:'14px',label:'14 px｜小'},
+                {id:'16px',label:'16 px｜一般內文'},
+                {id:'18px',label:'18 px'},
+                {id:'20px',label:'20 px'},
+                {id:'22px',label:'22 px'},
+                {id:'24px',label:'24 px'},
+                {id:'28px',label:'28 px'},
+                {id:'32px',label:'32 px'},
+                {id:'36px',label:'36 px'},
+                {id:'40px',label:'40 px'},
+                {id:'48px',label:'48 px'},
+                {id:'56px',label:'56 px'},
+                {id:'64px',label:'64 px'},
+                {id:'72px',label:'72 px'},
+                {id:'80px',label:'80 px'},
+                {id:'96px',label:'96 px'},
+                {id:'120px',label:'120 px'},
+                {id:'144px',label:'144 px'}
+              ]
             },
-            { property: 'font-weight', name: '粗細' },
-            { property: 'font-style', name: '斜體' },
-            { property: 'text-decoration', name: '文字裝飾' },
             {
-              property: 'line-height',
-              name: '行高',
-              type: 'number',
-              units: ['', 'px', 'em', 'rem', '%'],
-              default: '1.4',
-              min: 0.5,
-              max: 10,
-              step: 0.05
+              property:'font-weight', name:'粗細', type:'select',
+              options:[
+                {id:'100',label:'100｜極細'},
+                {id:'200',label:'200｜很細'},
+                {id:'300',label:'300｜細'},
+                {id:'400',label:'400｜一般'},
+                {id:'500',label:'500｜中等'},
+                {id:'600',label:'600｜半粗'},
+                {id:'700',label:'700｜粗體'},
+                {id:'800',label:'800｜很粗'},
+                {id:'900',label:'900｜最粗'}
+              ]
             },
             {
-              property: 'letter-spacing',
-              name: '字距',
-              type: 'number',
-              units: ['px', 'em', 'rem'],
-              default: '0px',
-              min: -20,
-              max: 100,
-              step: 0.1
+              property:'font-style', name:'斜體', type:'select',
+              options:[
+                {id:'normal',label:'一般'},
+                {id:'italic',label:'斜體'}
+              ]
             },
-            { property: 'color', name: '文字顏色' },
-            { property: 'text-align', name: '對齊' },
-            { property: 'text-shadow', name: '文字陰影', type: 'text' }
+            {
+              property:'text-decoration', name:'文字裝飾', type:'select',
+              options:[
+                {id:'none',label:'無'},
+                {id:'underline',label:'底線'},
+                {id:'line-through',label:'刪除線'},
+                {id:'overline',label:'上線'}
+              ]
+            },
+            {
+              property:'line-height', name:'行高', type:'select',
+              options:[
+                {id:'0.8',label:'0.8｜很緊'},
+                {id:'0.9',label:'0.9'},
+                {id:'1',label:'1.0｜緊'},
+                {id:'1.1',label:'1.1'},
+                {id:'1.2',label:'1.2'},
+                {id:'1.3',label:'1.3'},
+                {id:'1.4',label:'1.4｜一般'},
+                {id:'1.5',label:'1.5'},
+                {id:'1.6',label:'1.6'},
+                {id:'1.8',label:'1.8'},
+                {id:'2',label:'2.0｜寬鬆'},
+                {id:'2.2',label:'2.2'},
+                {id:'2.5',label:'2.5'}
+              ]
+            },
+            {
+              property:'letter-spacing', name:'字距', type:'select',
+              options:[
+                {id:'-3px',label:'-3 px｜很緊'},
+                {id:'-2px',label:'-2 px'},
+                {id:'-1px',label:'-1 px'},
+                {id:'0px',label:'0｜一般'},
+                {id:'0.5px',label:'0.5 px'},
+                {id:'1px',label:'1 px'},
+                {id:'2px',label:'2 px'},
+                {id:'3px',label:'3 px'},
+                {id:'4px',label:'4 px'},
+                {id:'6px',label:'6 px'},
+                {id:'8px',label:'8 px'},
+                {id:'10px',label:'10 px'}
+              ]
+            },
+            {
+              property:'color', name:'文字顏色', type:'color', default:'#1b241e'
+            },
+            {
+              property:'text-align', name:'對齊', type:'select',
+              options:[
+                {id:'left',label:'靠左'},
+                {id:'center',label:'置中'},
+                {id:'right',label:'靠右'},
+                {id:'justify',label:'左右對齊'}
+              ]
+            },
+            {
+              property:'text-shadow', name:'文字陰影', type:'select',
+              options:[
+                {id:'none',label:'無陰影'},
+                {id:'0 1px 2px rgba(0,0,0,.18)',label:'淡陰影'},
+                {id:'0 2px 4px rgba(0,0,0,.22)',label:'柔和陰影'},
+                {id:'0 3px 8px rgba(0,0,0,.28)',label:'中等陰影'},
+                {id:'0 6px 16px rgba(0,0,0,.32)',label:'明顯陰影'},
+                {id:'1px 1px 0 rgba(255,255,255,.75)',label:'淺色浮雕'},
+                {id:'2px 2px 0 rgba(0,0,0,.18)',label:'硬邊陰影'}
+              ]
+            }
           ]
         },
+
         {
-          name: '間距',
-          open: false,
-          buildProps: [
-            'margin-top','margin-right','margin-bottom','margin-left',
-            'padding-top','padding-right','padding-bottom','padding-left'
+          name:'間距',
+          open:false,
+          properties:[
+            {
+              property:'margin-top', name:'上外距', type:'select',
+              options:[
+                {id:'auto',label:'自動'},{id:'-40px',label:'-40 px'},{id:'-24px',label:'-24 px'},
+                {id:'-16px',label:'-16 px'},{id:'-8px',label:'-8 px'},{id:'0',label:'0'},
+                {id:'4px',label:'4 px'},{id:'8px',label:'8 px'},{id:'12px',label:'12 px'},
+                {id:'16px',label:'16 px'},{id:'20px',label:'20 px'},{id:'24px',label:'24 px'},
+                {id:'32px',label:'32 px'},{id:'40px',label:'40 px'},{id:'48px',label:'48 px'},
+                {id:'64px',label:'64 px'},{id:'80px',label:'80 px'},{id:'96px',label:'96 px'}
+              ]
+            },
+            {
+              property:'margin-right', name:'右外距', type:'select',
+              options:[
+                {id:'auto',label:'自動'},{id:'-40px',label:'-40 px'},{id:'-24px',label:'-24 px'},
+                {id:'-16px',label:'-16 px'},{id:'-8px',label:'-8 px'},{id:'0',label:'0'},
+                {id:'4px',label:'4 px'},{id:'8px',label:'8 px'},{id:'12px',label:'12 px'},
+                {id:'16px',label:'16 px'},{id:'20px',label:'20 px'},{id:'24px',label:'24 px'},
+                {id:'32px',label:'32 px'},{id:'40px',label:'40 px'},{id:'48px',label:'48 px'},
+                {id:'64px',label:'64 px'},{id:'80px',label:'80 px'},{id:'96px',label:'96 px'}
+              ]
+            },
+            {
+              property:'margin-bottom', name:'下外距', type:'select',
+              options:[
+                {id:'auto',label:'自動'},{id:'-40px',label:'-40 px'},{id:'-24px',label:'-24 px'},
+                {id:'-16px',label:'-16 px'},{id:'-8px',label:'-8 px'},{id:'0',label:'0'},
+                {id:'4px',label:'4 px'},{id:'8px',label:'8 px'},{id:'12px',label:'12 px'},
+                {id:'16px',label:'16 px'},{id:'20px',label:'20 px'},{id:'24px',label:'24 px'},
+                {id:'32px',label:'32 px'},{id:'40px',label:'40 px'},{id:'48px',label:'48 px'},
+                {id:'64px',label:'64 px'},{id:'80px',label:'80 px'},{id:'96px',label:'96 px'}
+              ]
+            },
+            {
+              property:'margin-left', name:'左外距', type:'select',
+              options:[
+                {id:'auto',label:'自動'},{id:'-40px',label:'-40 px'},{id:'-24px',label:'-24 px'},
+                {id:'-16px',label:'-16 px'},{id:'-8px',label:'-8 px'},{id:'0',label:'0'},
+                {id:'4px',label:'4 px'},{id:'8px',label:'8 px'},{id:'12px',label:'12 px'},
+                {id:'16px',label:'16 px'},{id:'20px',label:'20 px'},{id:'24px',label:'24 px'},
+                {id:'32px',label:'32 px'},{id:'40px',label:'40 px'},{id:'48px',label:'48 px'},
+                {id:'64px',label:'64 px'},{id:'80px',label:'80 px'},{id:'96px',label:'96 px'}
+              ]
+            },
+            {
+              property:'padding-top', name:'上內距', type:'select',
+              options:[
+                {id:'0',label:'0'},{id:'4px',label:'4 px'},{id:'8px',label:'8 px'},
+                {id:'12px',label:'12 px'},{id:'16px',label:'16 px'},{id:'20px',label:'20 px'},
+                {id:'24px',label:'24 px'},{id:'32px',label:'32 px'},{id:'40px',label:'40 px'},
+                {id:'48px',label:'48 px'},{id:'64px',label:'64 px'},{id:'80px',label:'80 px'},
+                {id:'96px',label:'96 px'},{id:'120px',label:'120 px'}
+              ]
+            },
+            {
+              property:'padding-right', name:'右內距', type:'select',
+              options:[
+                {id:'0',label:'0'},{id:'4px',label:'4 px'},{id:'8px',label:'8 px'},
+                {id:'12px',label:'12 px'},{id:'16px',label:'16 px'},{id:'20px',label:'20 px'},
+                {id:'24px',label:'24 px'},{id:'32px',label:'32 px'},{id:'40px',label:'40 px'},
+                {id:'48px',label:'48 px'},{id:'64px',label:'64 px'},{id:'80px',label:'80 px'},
+                {id:'96px',label:'96 px'},{id:'120px',label:'120 px'}
+              ]
+            },
+            {
+              property:'padding-bottom', name:'下內距', type:'select',
+              options:[
+                {id:'0',label:'0'},{id:'4px',label:'4 px'},{id:'8px',label:'8 px'},
+                {id:'12px',label:'12 px'},{id:'16px',label:'16 px'},{id:'20px',label:'20 px'},
+                {id:'24px',label:'24 px'},{id:'32px',label:'32 px'},{id:'40px',label:'40 px'},
+                {id:'48px',label:'48 px'},{id:'64px',label:'64 px'},{id:'80px',label:'80 px'},
+                {id:'96px',label:'96 px'},{id:'120px',label:'120 px'}
+              ]
+            },
+            {
+              property:'padding-left', name:'左內距', type:'select',
+              options:[
+                {id:'0',label:'0'},{id:'4px',label:'4 px'},{id:'8px',label:'8 px'},
+                {id:'12px',label:'12 px'},{id:'16px',label:'16 px'},{id:'20px',label:'20 px'},
+                {id:'24px',label:'24 px'},{id:'32px',label:'32 px'},{id:'40px',label:'40 px'},
+                {id:'48px',label:'48 px'},{id:'64px',label:'64 px'},{id:'80px',label:'80 px'},
+                {id:'96px',label:'96 px'},{id:'120px',label:'120 px'}
+              ]
+            }
           ]
         },
+
         {
-          name: '背景／外觀',
-          open: false,
-          buildProps: [
-            'background-color','background-image','background-position','background-size','background-repeat',
-            'border-top-width','border-right-width','border-bottom-width','border-left-width',
-            'border-style','border-color','border-radius',
-            'opacity'
-          ],
-          properties: [
-            { property: 'box-shadow', name: '區塊陰影', type: 'text' }
+          name:'背景／外觀',
+          open:false,
+          properties:[
+            { property:'background-color', name:'背景顏色', type:'color', default:'#ffffff' },
+            {
+              property:'background-position', name:'背景位置', type:'select',
+              options:[
+                {id:'center center',label:'置中'},
+                {id:'left top',label:'左上'},
+                {id:'center top',label:'上方置中'},
+                {id:'right top',label:'右上'},
+                {id:'left center',label:'左側置中'},
+                {id:'right center',label:'右側置中'},
+                {id:'left bottom',label:'左下'},
+                {id:'center bottom',label:'下方置中'},
+                {id:'right bottom',label:'右下'}
+              ]
+            },
+            {
+              property:'background-size', name:'背景尺寸', type:'select',
+              options:[
+                {id:'auto',label:'原始尺寸'},
+                {id:'cover',label:'填滿裁切'},
+                {id:'contain',label:'完整顯示'},
+                {id:'100% auto',label:'寬度 100%'},
+                {id:'auto 100%',label:'高度 100%'},
+                {id:'100% 100%',label:'拉滿區塊'}
+              ]
+            },
+            {
+              property:'background-repeat', name:'背景重複', type:'select',
+              options:[
+                {id:'no-repeat',label:'不重複'},
+                {id:'repeat',label:'全部重複'},
+                {id:'repeat-x',label:'水平重複'},
+                {id:'repeat-y',label:'垂直重複'}
+              ]
+            },
+            {
+              property:'border-style', name:'框線樣式', type:'select',
+              options:[
+                {id:'none',label:'無框線'},
+                {id:'solid',label:'實線'},
+                {id:'dashed',label:'虛線'},
+                {id:'dotted',label:'點線'},
+                {id:'double',label:'雙線'}
+              ]
+            },
+            {
+              property:'border-top-width', name:'上框線', type:'select',
+              options:[
+                {id:'0',label:'0'},{id:'1px',label:'1 px'},{id:'2px',label:'2 px'},
+                {id:'3px',label:'3 px'},{id:'4px',label:'4 px'},{id:'6px',label:'6 px'},
+                {id:'8px',label:'8 px'},{id:'10px',label:'10 px'}
+              ]
+            },
+            {
+              property:'border-right-width', name:'右框線', type:'select',
+              options:[
+                {id:'0',label:'0'},{id:'1px',label:'1 px'},{id:'2px',label:'2 px'},
+                {id:'3px',label:'3 px'},{id:'4px',label:'4 px'},{id:'6px',label:'6 px'},
+                {id:'8px',label:'8 px'},{id:'10px',label:'10 px'}
+              ]
+            },
+            {
+              property:'border-bottom-width', name:'下框線', type:'select',
+              options:[
+                {id:'0',label:'0'},{id:'1px',label:'1 px'},{id:'2px',label:'2 px'},
+                {id:'3px',label:'3 px'},{id:'4px',label:'4 px'},{id:'6px',label:'6 px'},
+                {id:'8px',label:'8 px'},{id:'10px',label:'10 px'}
+              ]
+            },
+            {
+              property:'border-left-width', name:'左框線', type:'select',
+              options:[
+                {id:'0',label:'0'},{id:'1px',label:'1 px'},{id:'2px',label:'2 px'},
+                {id:'3px',label:'3 px'},{id:'4px',label:'4 px'},{id:'6px',label:'6 px'},
+                {id:'8px',label:'8 px'},{id:'10px',label:'10 px'}
+              ]
+            },
+            { property:'border-color', name:'框線顏色', type:'color', default:'#d9d9d9' },
+            {
+              property:'border-radius', name:'圓角', type:'select',
+              options:[
+                {id:'0',label:'直角'},
+                {id:'4px',label:'4 px'},
+                {id:'8px',label:'8 px'},
+                {id:'12px',label:'12 px'},
+                {id:'16px',label:'16 px'},
+                {id:'20px',label:'20 px'},
+                {id:'24px',label:'24 px'},
+                {id:'32px',label:'32 px'},
+                {id:'40px',label:'40 px'},
+                {id:'50%',label:'圓形 50%'},
+                {id:'9999px',label:'膠囊形'}
+              ]
+            },
+            {
+              property:'opacity', name:'透明度', type:'select',
+              options:[
+                {id:'1',label:'100%'},
+                {id:'.9',label:'90%'},
+                {id:'.8',label:'80%'},
+                {id:'.7',label:'70%'},
+                {id:'.6',label:'60%'},
+                {id:'.5',label:'50%'},
+                {id:'.4',label:'40%'},
+                {id:'.3',label:'30%'},
+                {id:'.2',label:'20%'},
+                {id:'.1',label:'10%'},
+                {id:'0',label:'0%｜完全透明'}
+              ]
+            },
+            {
+              property:'box-shadow', name:'區塊陰影', type:'select',
+              options:[
+                {id:'none',label:'無陰影'},
+                {id:'0 2px 8px rgba(0,0,0,.08)',label:'極淡陰影'},
+                {id:'0 4px 14px rgba(0,0,0,.12)',label:'柔和陰影'},
+                {id:'0 8px 24px rgba(0,0,0,.16)',label:'中等陰影'},
+                {id:'0 14px 36px rgba(0,0,0,.2)',label:'明顯陰影'},
+                {id:'0 20px 60px rgba(0,0,0,.24)',label:'大型浮起'},
+                {id:'inset 0 0 0 1px rgba(0,0,0,.12)',label:'內框陰影'}
+              ]
+            }
           ]
         },
+
         {
-          name: 'Flex / Grid',
-          open: false,
-          buildProps: [
-            'flex-direction','flex-wrap','justify-content','align-items','align-content',
-            'gap','grid-template-columns','grid-template-rows'
+          name:'Flex／Grid 排版',
+          open:false,
+          properties:[
+            {
+              property:'flex-direction', name:'排列方向', type:'select',
+              options:[
+                {id:'row',label:'橫向'},
+                {id:'column',label:'直向'},
+                {id:'row-reverse',label:'橫向反轉'},
+                {id:'column-reverse',label:'直向反轉'}
+              ]
+            },
+            {
+              property:'flex-wrap', name:'換行方式', type:'select',
+              options:[
+                {id:'nowrap',label:'不換行'},
+                {id:'wrap',label:'自動換行'},
+                {id:'wrap-reverse',label:'反向換行'}
+              ]
+            },
+            {
+              property:'justify-content', name:'主軸對齊', type:'select',
+              options:[
+                {id:'flex-start',label:'靠開頭'},
+                {id:'center',label:'置中'},
+                {id:'flex-end',label:'靠結尾'},
+                {id:'space-between',label:'兩端分散'},
+                {id:'space-around',label:'環繞分散'},
+                {id:'space-evenly',label:'平均分散'}
+              ]
+            },
+            {
+              property:'align-items', name:'交叉軸對齊', type:'select',
+              options:[
+                {id:'stretch',label:'拉伸'},
+                {id:'flex-start',label:'靠開頭'},
+                {id:'center',label:'置中'},
+                {id:'flex-end',label:'靠結尾'},
+                {id:'baseline',label:'文字基準線'}
+              ]
+            },
+            {
+              property:'align-content', name:'多行對齊', type:'select',
+              options:[
+                {id:'stretch',label:'拉伸'},
+                {id:'flex-start',label:'靠開頭'},
+                {id:'center',label:'置中'},
+                {id:'flex-end',label:'靠結尾'},
+                {id:'space-between',label:'兩端分散'},
+                {id:'space-around',label:'環繞分散'}
+              ]
+            },
+            {
+              property:'gap', name:'項目間距', type:'select',
+              options:[
+                {id:'0',label:'0'},
+                {id:'4px',label:'4 px'},
+                {id:'8px',label:'8 px'},
+                {id:'12px',label:'12 px'},
+                {id:'16px',label:'16 px'},
+                {id:'20px',label:'20 px'},
+                {id:'24px',label:'24 px'},
+                {id:'32px',label:'32 px'},
+                {id:'40px',label:'40 px'},
+                {id:'48px',label:'48 px'},
+                {id:'64px',label:'64 px'}
+              ]
+            },
+            {
+              property:'grid-template-columns', name:'網格欄數', type:'select',
+              options:[
+                {id:'none',label:'無'},
+                {id:'1fr',label:'1 欄'},
+                {id:'repeat(2, 1fr)',label:'2 欄'},
+                {id:'repeat(3, 1fr)',label:'3 欄'},
+                {id:'repeat(4, 1fr)',label:'4 欄'},
+                {id:'repeat(5, 1fr)',label:'5 欄'},
+                {id:'repeat(6, 1fr)',label:'6 欄'},
+                {id:'1fr 2fr',label:'1：2'},
+                {id:'2fr 1fr',label:'2：1'},
+                {id:'repeat(auto-fit, minmax(220px, 1fr))',label:'自動響應 220px'}
+              ]
+            },
+            {
+              property:'grid-template-rows', name:'網格列數', type:'select',
+              options:[
+                {id:'none',label:'自動'},
+                {id:'auto',label:'1 列自動'},
+                {id:'repeat(2, auto)',label:'2 列'},
+                {id:'repeat(3, auto)',label:'3 列'},
+                {id:'repeat(4, auto)',label:'4 列'},
+                {id:'repeat(2, 1fr)',label:'2 列等高'},
+                {id:'repeat(3, 1fr)',label:'3 列等高'}
+              ]
+            }
+          ]
+        },
+
+        {
+          name:'圖片／媒體',
+          open:false,
+          properties:[
+            {
+              property:'object-fit', name:'圖片填滿方式', type:'select',
+              options:[
+                {id:'fill',label:'拉伸填滿'},
+                {id:'cover',label:'填滿裁切'},
+                {id:'contain',label:'完整顯示'},
+                {id:'none',label:'原始尺寸'},
+                {id:'scale-down',label:'自動縮小'}
+              ]
+            },
+            {
+              property:'object-position', name:'圖片焦點位置', type:'select',
+              options:[
+                {id:'center center',label:'置中'},
+                {id:'left top',label:'左上'},
+                {id:'center top',label:'上方置中'},
+                {id:'right top',label:'右上'},
+                {id:'left center',label:'左側置中'},
+                {id:'right center',label:'右側置中'},
+                {id:'left bottom',label:'左下'},
+                {id:'center bottom',label:'下方置中'},
+                {id:'right bottom',label:'右下'}
+              ]
+            },
+            {
+              property:'aspect-ratio', name:'圖片比例', type:'select',
+              options:[
+                {id:'auto',label:'自動'},
+                {id:'1 / 1',label:'1：1 正方形'},
+                {id:'4 / 3',label:'4：3'},
+                {id:'3 / 2',label:'3：2'},
+                {id:'16 / 9',label:'16：9'},
+                {id:'9 / 16',label:'9：16 直式'},
+                {id:'21 / 9',label:'21：9 超寬'}
+              ]
+            }
           ]
         }
       ]
@@ -147,6 +691,16 @@
   });
 
   function setStatus(msg) { statusText.textContent = msg; }
+
+  // -------- V8.1 顏色色塊選擇 --------
+  function enhanceColorPickers() {
+    requestAnimationFrame(() => {
+      document.querySelectorAll('.gjs-field-color input[type="color"], .gjs-field-color input').forEach(input => {
+        input.setAttribute('title', '點色塊直接選顏色');
+      });
+    });
+  }
+
 
   // -------- V7.7 右側功能列繁體中文化 --------
   const PANEL_ZH = new Map([
@@ -1345,7 +1899,7 @@
     await editor.store();
     editor.clearDirtyCount();
     refreshPages();
-    setStatus('V8.0 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
+    setStatus('V8.2 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
   }
 
   // -------- code --------
@@ -1983,6 +2537,7 @@ ${bodyHtml}
   let autoTextResizeTimer = null;
 
   editor.on('component:selected',(c)=>{
+    enhanceColorPickers();
     requestAnimationFrame(() => translatePanelText(document));
     if (moveState.component && moveState.component !== c) stopMove();
 
@@ -2015,12 +2570,13 @@ ${bodyHtml}
 
   editor.on('load',async()=>{
     enableChineseRightPanel();
+    enhanceColorPickers();
     ensureCanvasBase();
     if (!localStorage.getItem(INIT_KEY)) {
       await loadLive({ask:false});
       localStorage.setItem(INIT_KEY,'1');
     }
     refreshPages();
-    setStatus('V8.0 已就緒。文字可雙擊修改；按「Canva縮放」可拖框縮放字體。');
+    setStatus('V8.2 已就緒。文字可雙擊修改；按「Canva縮放」可拖框縮放字體。');
   });
 })();
