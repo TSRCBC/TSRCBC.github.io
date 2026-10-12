@@ -76,6 +76,7 @@
   const CFG = window.CHINON_CONFIG;
   const $ = (s) => document.querySelector(s);
   const statusText = $('#statusText');
+  const RUNTIME_BUILD = 'V8.6';
   const STORAGE_KEY = 'chinon-warm-v72';
   const INIT_KEY = 'chinon-warm-v72-init';
   const SNAPSHOT_ATTR = 'data-chinon-move-snapshot';
@@ -837,6 +838,7 @@
       await saveDraft({silent:true});
       // 成功搬到 IndexedDB 後才刪舊大型草稿，釋放 localStorage。
       localStorage.removeItem(LEGACY_DRAFT_KEY);
+      localStorage.removeItem(INIT_KEY);
       return true;
     } catch (error) {
       console.warn('舊草稿搬移失敗', error);
@@ -2090,7 +2092,7 @@
       console.warn('重新載入後草稿儲存失敗', error);
     }
     refreshPages();
-    setStatus('V8.5 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
+    setStatus('V8.6 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
   }
 
   // -------- code --------
@@ -2810,11 +2812,14 @@ ${bodyHtml}
       await loadLive({ask:false});
     }
 
+    // V8.6 不再使用舊版 localStorage 草稿標記。
+    try { localStorage.removeItem(INIT_KEY); } catch {}
+
     refreshPages();
 
     // 自動草稿改存 IndexedDB。
     editor.on('update', scheduleDraftSave);
 
-    setStatus('V8.5 已就緒。草稿改用 IndexedDB，不再受 localStorage 小容量限制。');
+    setStatus(`${RUNTIME_BUILD} 程式已載入。草稿使用 IndexedDB，不再使用舊 localStorage。`);
   });
 })();
