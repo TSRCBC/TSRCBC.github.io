@@ -4,7 +4,7 @@
   <meta name="robots" content="noindex,nofollow,noarchive">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>CHINON 自助網站編輯器 V8.4</title>
+  <title>CHINON 自助網站編輯器 V8.5</title>
   <link rel="stylesheet" href="https://unpkg.com/grapesjs@0.23.6/dist/css/grapes.min.css">
   <link rel="stylesheet" href="editor.css">
 </head>
@@ -52,7 +52,7 @@
 
   <header class="appbar">
     <div class="brand">
-      <strong>CHINON 編輯器 V8.4</strong>
+      <strong>CHINON 編輯器 V8.5</strong>
       <span>溫暖生活版・保留舊內容・Wix-like 基礎工具</span>
     </div>
 
@@ -105,6 +105,8 @@
       <button id="btnSave">儲存草稿</button>
       <button id="btnReload">重新載入</button>
       <button id="btnPublish" class="publish direct-publish">🚀 全站同步發布</button>
+      <button id="btnImportBackup">匯入備份</button>
+      <input id="backupFileInput" type="file" accept=".zip,.json,application/zip,application/json" hidden>
       <button id="btnExport">下載備份 ZIP</button>
     </div>
 
@@ -116,7 +118,7 @@
   </header>
 
   <div id="statusbar">
-    <span id="statusText">V8.4 啟動中…</span>
+    <span id="statusText">V8.5 啟動中…</span>
     <span>文字選取後自動出現縮放框：拖四角直接改字體大小；拖左右只改文字框寬度。</span>
   </div>
 

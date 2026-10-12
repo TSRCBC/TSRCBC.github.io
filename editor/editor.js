@@ -96,13 +96,7 @@
     width: 'auto',
     fromElement: false,
 
-    storageManager: {
-      type: 'local',
-      autosave: true,
-      autoload: true,
-      stepsBeforeSave: 1,
-      options: { local: { key: STORAGE_KEY } }
-    },
+    storageManager: false,
 
     deviceManager: {
       devices: [
@@ -762,6 +756,130 @@
   });
 
   function setStatus(msg) { statusText.textContent = msg; }
+
+  // -------- V8.5 IndexedDB 草稿儲存 --------
+  // 舊版把整個網站（含 base64 圖片）塞進 localStorage，約 5~10MB 就可能爆掉。
+  // V8.5 改用 IndexedDB；容量大很多，且發布不會因草稿儲存失敗而中止。
+  const DRAFT_DB_NAME = 'chinon-editor-drafts';
+  const DRAFT_DB_VERSION = 1;
+  const DRAFT_STORE = 'drafts';
+  const DRAFT_KEY = 'chinon-v85-project';
+  const LEGACY_DRAFT_KEY = 'chinon-warm-v72';
+
+  function openDraftDb() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DRAFT_DB_NAME, DRAFT_DB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(DRAFT_STORE)) {
+          db.createObjectStore(DRAFT_STORE);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error || new Error('IndexedDB 無法開啟'));
+    });
+  }
+
+  async function idbGetDraft() {
+    const db = await openDraftDb();
+    try {
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(DRAFT_STORE, 'readonly');
+        const req = tx.objectStore(DRAFT_STORE).get(DRAFT_KEY);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error || new Error('讀取草稿失敗'));
+      });
+    } finally {
+      db.close();
+    }
+  }
+
+  async function idbPutDraft(data) {
+    const db = await openDraftDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(DRAFT_STORE, 'readwrite');
+        tx.objectStore(DRAFT_STORE).put(data, DRAFT_KEY);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error || new Error('儲存草稿失敗'));
+        tx.onabort = () => reject(tx.error || new Error('儲存草稿被中止'));
+      });
+    } finally {
+      db.close();
+    }
+  }
+
+  async function saveDraft({silent=false}={}) {
+    const data = editor.getProjectData();
+    await idbPutDraft(data);
+    editor.clearDirtyCount();
+    if (!silent) {
+      setStatus('草稿已儲存在這台電腦（IndexedDB）。尚未發布到正式網站。');
+    }
+    return true;
+  }
+
+  async function restoreDraft() {
+    const draft = await idbGetDraft();
+    if (!draft) return false;
+    editor.loadProjectData(draft);
+    editor.clearDirtyCount();
+    return true;
+  }
+
+  async function migrateLegacyDraftIfAvailable() {
+    const raw = localStorage.getItem(LEGACY_DRAFT_KEY);
+    if (!raw) return false;
+
+    try {
+      const data = JSON.parse(raw);
+      editor.loadProjectData(data);
+      await saveDraft({silent:true});
+      // 成功搬到 IndexedDB 後才刪舊大型草稿，釋放 localStorage。
+      localStorage.removeItem(LEGACY_DRAFT_KEY);
+      return true;
+    } catch (error) {
+      console.warn('舊草稿搬移失敗', error);
+      return false;
+    }
+  }
+
+  let draftSaveTimer = null;
+  function scheduleDraftSave() {
+    clearTimeout(draftSaveTimer);
+    draftSaveTimer = setTimeout(() => {
+      saveDraft({silent:true}).catch(error => {
+        console.warn('自動儲存草稿失敗', error);
+        setStatus(`自動儲存失敗：${error.message}。可先下載備份 ZIP。`);
+      });
+    }, 1000);
+  }
+
+  async function importBackupFile(file) {
+    if (!file) return;
+
+    let projectData = null;
+
+    if (/\.zip$/i.test(file.name) || file.type === 'application/zip' || file.type === 'application/x-zip-compressed') {
+      const zip = await JSZip.loadAsync(file);
+      const backup = zip.file('editor-backup.json');
+      if (!backup) throw new Error('ZIP 裡找不到 editor-backup.json');
+      projectData = JSON.parse(await backup.async('text'));
+    } else {
+      projectData = JSON.parse(await file.text());
+    }
+
+    if (!projectData || typeof projectData !== 'object') {
+      throw new Error('備份內容格式不正確');
+    }
+
+    editor.loadProjectData(projectData);
+    await saveDraft({silent:true});
+    refreshPages();
+    editor.refresh();
+    setStatus('備份已匯入並儲存。');
+  }
+
 
   // -------- V8.1 顏色色塊選擇 --------
   function enhanceColorPickers() {
@@ -1966,11 +2084,13 @@
     pm.select(first);
     ensureCanvasEnvironment();
     requestAnimationFrame(ensureCanvasEnvironment);
-    localStorage.setItem(INIT_KEY,'1');
-    await editor.store();
-    editor.clearDirtyCount();
+    try {
+      await saveDraft({silent:true});
+    } catch (error) {
+      console.warn('重新載入後草稿儲存失敗', error);
+    }
     refreshPages();
-    setStatus('V8.4 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
+    setStatus('V8.5 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
   }
 
   // -------- code --------
@@ -2295,9 +2415,14 @@
     button.disabled = true;
 
     try {
-      publishProgress('1/6 正在儲存目前編輯內容…');
-      await editor.store();
-      editor.clearDirtyCount();
+      publishProgress('1/6 正在備份目前編輯內容…');
+      try {
+        await saveDraft({silent:true});
+      } catch (draftError) {
+        // 草稿儲存失敗不能阻止正式發布。
+        console.warn('草稿儲存失敗，但繼續發布', draftError);
+        publishProgress(`草稿儲存失敗（${draftError.message}），但會繼續發布目前畫面內容…`);
+      }
 
       publishProgress('2/6 正在整理網站檔案…');
       const snapshot = await buildPublishFiles();
@@ -2570,9 +2695,13 @@ ${bodyHtml}
   $('#btnCopyCss').addEventListener('click',()=>copyText($('#cssCode').value,'CSS'));
 
   $('#btnSave').addEventListener('click',async()=>{
-    await editor.store();
-    editor.clearDirtyCount();
-    setStatus('草稿已儲存在這台瀏覽器。尚未發布到正式網站。');
+    try {
+      await saveDraft();
+    } catch (error) {
+      console.error(error);
+      setStatus(`草稿儲存失敗：${error.message}。請先下載備份 ZIP。`);
+      alert(`草稿儲存失敗：${error.message}\n\n請先按「下載備份 ZIP」保留目前修改。`);
+    }
   });
 
   $('#btnReload').addEventListener('click',()=>loadLive({ask:true}));
@@ -2583,6 +2712,23 @@ ${bodyHtml}
     $('#publishToken').value = '';
     publishProgress('目前分頁中的 GitHub Token 已清除。');
   });
+  $('#btnImportBackup').addEventListener('click',()=>$('#backupFileInput').click());
+  $('#backupFileInput').addEventListener('change',async(event)=>{
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setStatus('正在匯入備份…');
+      await importBackupFile(file);
+    } catch (error) {
+      console.error(error);
+      setStatus(`匯入備份失敗：${error.message}`);
+      alert(`匯入備份失敗：${error.message}`);
+    } finally {
+      event.target.value = '';
+    }
+  });
+
   $('#btnExport').addEventListener('click',exportZip);
 
   document.querySelectorAll('[data-device]').forEach(btn=>{
@@ -2643,11 +2789,32 @@ ${bodyHtml}
     enableChineseRightPanel();
     enhanceColorPickers();
     ensureCanvasBase();
-    if (!localStorage.getItem(INIT_KEY)) {
-      await loadLive({ask:false});
-      localStorage.setItem(INIT_KEY,'1');
+
+    let loadedDraft = false;
+
+    try {
+      loadedDraft = await restoreDraft();
+    } catch (error) {
+      console.warn('IndexedDB 草稿讀取失敗', error);
     }
+
+    if (!loadedDraft) {
+      try {
+        loadedDraft = await migrateLegacyDraftIfAvailable();
+      } catch (error) {
+        console.warn('舊草稿搬移失敗', error);
+      }
+    }
+
+    if (!loadedDraft) {
+      await loadLive({ask:false});
+    }
+
     refreshPages();
-    setStatus('V8.4 已就緒。文字可雙擊修改；按「Canva縮放」可拖框縮放字體。');
+
+    // 自動草稿改存 IndexedDB。
+    editor.on('update', scheduleDraftSave);
+
+    setStatus('V8.5 已就緒。草稿改用 IndexedDB，不再受 localStorage 小容量限制。');
   });
 })();

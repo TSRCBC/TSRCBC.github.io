@@ -412,3 +412,7 @@ body.auth-locked > *:not(#loginGate){
     font-size:26px;
   }
 }
+
+#btnImportBackup{
+  border-color:#49607b;
+}
