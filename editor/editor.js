@@ -2,6 +2,77 @@
 (() => {
   'use strict';
 
+  // -------- V8.4 前端管理者登入鎖 --------
+  const LOGIN_USERNAME = 'luke';
+  const LOGIN_PASSWORD_SHA256 = '23f26c1f19c8ef676e496b4021c12831ecbd11c4ba400b516dda4badf653d71c';
+  const LOGIN_SESSION_KEY = 'chinon-admin-auth-v84';
+
+  async function sha256Hex(value) {
+    const data = new TextEncoder().encode(value);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    return [...new Uint8Array(digest)]
+      .map(b => b.toString(16).padStart(2,'0'))
+      .join('');
+  }
+
+  function unlockEditor() {
+    const gate = document.querySelector('#loginGate');
+    document.body.classList.remove('auth-locked');
+    gate?.classList.add('is-hidden');
+    gate?.setAttribute('aria-hidden','true');
+  }
+
+  function initAdminLogin() {
+    const gate = document.querySelector('#loginGate');
+    if (!gate) return;
+
+    if (sessionStorage.getItem(LOGIN_SESSION_KEY) === 'ok') {
+      unlockEditor();
+      return;
+    }
+
+    const form = document.querySelector('#loginForm');
+    const user = document.querySelector('#loginUser');
+    const pass = document.querySelector('#loginPass');
+    const error = document.querySelector('#loginError');
+    const toggle = document.querySelector('#togglePassword');
+    const card = gate.querySelector('.login-card');
+
+    toggle?.addEventListener('click', () => {
+      const show = pass.type === 'password';
+      pass.type = show ? 'text' : 'password';
+      toggle.textContent = show ? '隱藏' : '顯示';
+      toggle.setAttribute('aria-label', show ? '隱藏密碼' : '顯示密碼');
+    });
+
+    form?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      error.textContent = '';
+
+      const inputUser = user.value.trim();
+      const inputHash = await sha256Hex(pass.value);
+
+      if (inputUser === LOGIN_USERNAME && inputHash === LOGIN_PASSWORD_SHA256) {
+        sessionStorage.setItem(LOGIN_SESSION_KEY,'ok');
+        unlockEditor();
+        setTimeout(() => user.value = pass.value = '', 400);
+        return;
+      }
+
+      error.textContent = '帳號或密碼錯誤，請重新輸入。';
+      pass.value = '';
+      pass.focus();
+      card?.classList.remove('shake');
+      void card?.offsetWidth;
+      card?.classList.add('shake');
+    });
+
+    setTimeout(() => user?.focus(), 120);
+  }
+
+  initAdminLogin();
+
+
   const CFG = window.CHINON_CONFIG;
   const $ = (s) => document.querySelector(s);
   const statusText = $('#statusText');
@@ -1899,7 +1970,7 @@
     await editor.store();
     editor.clearDirtyCount();
     refreshPages();
-    setStatus('V8.2 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
+    setStatus('V8.4 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
   }
 
   // -------- code --------
@@ -2577,6 +2648,6 @@ ${bodyHtml}
       localStorage.setItem(INIT_KEY,'1');
     }
     refreshPages();
-    setStatus('V8.2 已就緒。文字可雙擊修改；按「Canva縮放」可拖框縮放字體。');
+    setStatus('V8.4 已就緒。文字可雙擊修改；按「Canva縮放」可拖框縮放字體。');
   });
 })();

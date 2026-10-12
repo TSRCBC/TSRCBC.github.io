@@ -1,16 +1,58 @@
 <!doctype html>
 <html lang="zh-Hant">
 <head>
+  <meta name="robots" content="noindex,nofollow,noarchive">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>CHINON 自助網站編輯器 V8.2</title>
+  <title>CHINON 自助網站編輯器 V8.4</title>
   <link rel="stylesheet" href="https://unpkg.com/grapesjs@0.23.6/dist/css/grapes.min.css">
   <link rel="stylesheet" href="editor.css">
 </head>
-<body>
+<body class="auth-locked">
+
+  <div id="loginGate" class="login-gate" aria-hidden="false">
+    <div class="login-backdrop-orb orb-a"></div>
+    <div class="login-backdrop-orb orb-b"></div>
+    <div class="login-grid"></div>
+
+    <section class="login-card" aria-labelledby="loginTitle">
+      <div class="login-mark">C</div>
+      <div class="login-eyebrow">CHINON PRIVATE CONSOLE</div>
+      <h1 id="loginTitle">網站管理後台</h1>
+      <p class="login-subtitle">請驗證管理者身分後進入編輯器</p>
+
+      <form id="loginForm" class="login-form" autocomplete="off">
+        <label>
+          <span>管理帳號</span>
+          <input id="loginUser" type="text" inputmode="text" autocomplete="username" placeholder="輸入帳號">
+        </label>
+
+        <label>
+          <span>管理密碼</span>
+          <div class="password-wrap">
+            <input id="loginPass" type="password" autocomplete="current-password" placeholder="輸入密碼">
+            <button id="togglePassword" class="toggle-password" type="button" aria-label="顯示密碼">顯示</button>
+          </div>
+        </label>
+
+        <div id="loginError" class="login-error" role="alert"></div>
+
+        <button class="login-submit" type="submit">
+          <span>進入管理後台</span>
+          <span aria-hidden="true">→</span>
+        </button>
+      </form>
+
+      <div class="login-footer">
+        <span class="status-dot"></span>
+        <span>Private access · CHINON</span>
+      </div>
+    </section>
+  </div>
+
   <header class="appbar">
     <div class="brand">
-      <strong>CHINON 編輯器 V8.2</strong>
+      <strong>CHINON 編輯器 V8.4</strong>
       <span>溫暖生活版・保留舊內容・Wix-like 基礎工具</span>
     </div>
 
@@ -74,7 +116,7 @@
   </header>
 
   <div id="statusbar">
-    <span id="statusText">V8.2 啟動中…</span>
+    <span id="statusText">V8.4 啟動中…</span>
     <span>文字選取後自動出現縮放框：拖四角直接改字體大小；拖左右只改文字框寬度。</span>
   </div>
 
