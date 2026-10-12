@@ -425,3 +425,8 @@ body.auth-locked > *:not(#loginGate){
 #btnResetPagePosition:hover{
   background:#4b3820;
 }
+
+#btnPublish{
+  border-color:#2f9d69;
+  box-shadow:0 0 0 1px rgba(70,205,137,.14) inset;
+}

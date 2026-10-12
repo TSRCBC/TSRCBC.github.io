@@ -76,7 +76,7 @@
   const CFG = window.CHINON_CONFIG;
   const $ = (s) => document.querySelector(s);
   const statusText = $('#statusText');
-  const RUNTIME_BUILD = 'V8.7';
+  const RUNTIME_BUILD = 'V8.8';
   const STORAGE_KEY = 'chinon-warm-v72';
   const INIT_KEY = 'chinon-warm-v72-init';
   const SNAPSHOT_ATTR = 'data-chinon-move-snapshot';
@@ -846,8 +846,10 @@
     }
   }
 
+  let safeExportInProgress = false;
   let draftSaveTimer = null;
   function scheduleDraftSave() {
+    if (safeExportInProgress) return;
     clearTimeout(draftSaveTimer);
     draftSaveTimer = setTimeout(() => {
       saveDraft({silent:true}).catch(error => {
@@ -1366,7 +1368,7 @@
     scheduleDraftSave();
 
     if (count > 0) {
-      setStatus(`本頁已恢復 ${count} 個自由移動元件的位置。確認正常後再全站同步發布。`);
+      setStatus(`本頁已恢復 ${count} 個自由移動元件的位置。確認正常後再安全發布。`);
     } else {
       setStatus('找不到可恢復的移動紀錄。若之前已重新載入正式網站，需從 GitHub History 還原上一版。');
     }
@@ -2176,7 +2178,7 @@
       console.warn('重新載入後草稿儲存失敗', error);
     }
     refreshPages();
-    setStatus('V8.7 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
+    setStatus('V8.8 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
   }
 
   // -------- code --------
@@ -2205,6 +2207,105 @@
   }
 
 
+
+
+  // -------- V8.8 安全發布：排除自由移動的臨時定位 --------
+  function allPageComponents() {
+    const list = [];
+    editor.Pages.getAll().forEach(page => {
+      const root = page.getMainComponent?.();
+      if (!root) return;
+      walkComponents(root, c => list.push(c));
+    });
+    return list;
+  }
+
+  function beginSafePublishLayout() {
+    const changed = [];
+    safeExportInProgress = true;
+
+    allPageComponents().forEach(c => {
+      const attrs = c.getAttributes?.() || {};
+      if (!attrs[SNAPSHOT_ATTR]) return;
+
+      let snap;
+      try {
+        snap = JSON.parse(decodeURIComponent(attrs[SNAPSHOT_ATTR]));
+      } catch {
+        return;
+      }
+
+      const currentStyle = { ...(c.getStyle?.() || {}) };
+      changed.push({
+        component: c,
+        style: currentStyle,
+        snapshotAttr: attrs[SNAPSHOT_ATTR]
+      });
+
+      const cleanStyle = { ...currentStyle };
+      ['position','top','right','bottom','left','z-index','transform'].forEach(k => {
+        const v = snap[k];
+        if (v === null || v === '') delete cleanStyle[k];
+        else cleanStyle[k] = v;
+      });
+      c.setStyle(cleanStyle);
+    });
+
+    return changed;
+  }
+
+  function endSafePublishLayout(changed) {
+    try {
+      changed.forEach(item => {
+        item.component.setStyle(item.style);
+        item.component.addAttributes({ [SNAPSHOT_ATTR]: item.snapshotAttr });
+      });
+      editor.refresh();
+    } finally {
+      safeExportInProgress = false;
+    }
+  }
+
+  async function withSafePublishLayout(fn) {
+    const changed = beginSafePublishLayout();
+    try {
+      return await fn();
+    } finally {
+      endSafePublishLayout(changed);
+    }
+  }
+
+  async function buildDocumentPreservingHead(page, bodyHtml, assetVersion='') {
+    const file = pageFile(page);
+    let doc = null;
+
+    try {
+      const source = await fetchText(`../${file}?safe=${Date.now()}`);
+      doc = new DOMParser().parseFromString(source, 'text/html');
+    } catch {}
+
+    if (!doc || !doc.documentElement) {
+      return docForPage(page, bodyHtml, assetVersion);
+    }
+
+    // 保留正式網站原本完整 head，只更新可視內容。
+    doc.body.innerHTML = bodyHtml;
+
+    let cssLink = doc.head.querySelector('link[rel="stylesheet"][href*="styles.css"]');
+    if (!cssLink) {
+      cssLink = doc.createElement('link');
+      cssLink.rel = 'stylesheet';
+      doc.head.appendChild(cssLink);
+    }
+    cssLink.href = `styles.css?v=${encodeURIComponent(assetVersion)}`;
+
+    doc.body.querySelectorAll('script[src*="main.js"]').forEach(el => el.remove());
+    const script = doc.createElement('script');
+    script.src = `main.js?v=${encodeURIComponent(assetVersion)}`;
+    doc.body.appendChild(script);
+
+    return '<!doctype html>\n' + doc.documentElement.outerHTML;
+  }
 
   // -------- V8.0 full-sync asset snapshot helpers --------
   async function dataUrlToAsset(dataUrl, suggestedBase='image') {
@@ -2354,7 +2455,7 @@
 
   function openPublishDialog() {
     loadPublishSettings();
-    publishProgress('準備全站同步發布。所有頁面、樣式與新圖片會在同一個 GitHub Commit 一次更新。');
+    publishProgress('準備安全發布。所有頁面、樣式與新圖片會在同一個 GitHub Commit 一次更新。');
     $('#publishDialog').showModal();
   }
 
@@ -2393,13 +2494,19 @@
       html = doc.body.innerHTML;
 
       files.set(pageFile(page), {
-        content: docForPage(page, html, assetVersion),
+        content: await buildDocumentPreservingHead(page, html, assetVersion),
         encoding:'utf-8'
       });
     }
 
     // 2) 全站 CSS：字型、大小、粗細、字距、行高、顏色、位置、RWD 等一次同步
-    let css = editor.getCss() || '';
+    const editorCss = editor.getCss() || '';
+    let css = '';
+
+    const baselineCss = String(lastSiteCss || '').trim();
+    if (baselineCss) css += baselineCss + '\n\n';
+
+    css += '/* ===== CHINON EDITOR OVERRIDES ===== */\n' + editorCss;
 
     if (!css.includes('fonts.googleapis.com')) {
       css = `@import url('${CFG.fontUrl}');\n\n` + css;
@@ -2494,7 +2601,7 @@
       return;
     }
 
-    if (!confirm(`確定將目前整個網站一次同步發布到 ${owner}/${repo} 的 ${branch} 分支？\n\n發布後 GitHub Pages 會重新部署正式網站。`)) {
+    if (!confirm(`確定安全發布到 ${owner}/${repo} 的 ${branch} 分支？\n\n自由移動造成的臨時定位不會送上正式網站。\n\n發布後 GitHub Pages 會重新部署正式網站。`)) {
       return;
     }
 
@@ -2511,7 +2618,7 @@
       }
 
       publishProgress('2/6 正在整理網站檔案…');
-      const snapshot = await buildPublishFiles();
+      const snapshot = await withSafePublishLayout(() => buildPublishFiles());
       const files = snapshot.files;
 
       publishProgress('3/6 正在讀取 GitHub 最新版本…');
@@ -2610,7 +2717,7 @@
       );
 
       publishProgress(
-        `全站同步發布成功！
+        `安全發布成功！
 頁面：${snapshot.summary.pages}
 新圖片資源：${snapshot.summary.uploads}
 Commit：${commit.sha.slice(0,7)}
@@ -2619,7 +2726,7 @@ Commit：${commit.sha.slice(0,7)}
 GitHub Pages 仍需要一點時間重新部署。`,
         'ok'
       );
-      setStatus('全站已一次送出 GitHub：頁面、CSS、字型樣式與新圖片都在同一個 Commit。');
+      setStatus('安全發布已送出 GitHub：保留正式網站基礎版面，並排除自由移動的臨時定位。');
 
     } catch (error) {
       console.error(error);
@@ -2663,7 +2770,7 @@ ${bodyHtml}
     return 'jpg';
   }
 
-  async function exportZip() {
+  async function exportZipUnsafe() {
     setStatus('正在建立網站 ZIP…');
     const zip = new JSZip();
     const assetFolder = zip.folder('assets').folder('uploads');
@@ -2720,6 +2827,11 @@ ${bodyHtml}
     a.remove();
     URL.revokeObjectURL(url);
     setStatus('網站 ZIP 已下載。');
+  }
+
+
+  async function exportZip() {
+    return withSafePublishLayout(() => exportZipUnsafe());
   }
 
   // -------- wire UI --------
@@ -2905,6 +3017,6 @@ ${bodyHtml}
     // 自動草稿改存 IndexedDB。
     editor.on('update', scheduleDraftSave);
 
-    setStatus(`${RUNTIME_BUILD} 已載入。若版面被自由移動拖亂，可按「重置本頁位置」一次恢復。`);
+    setStatus(`${RUNTIME_BUILD} 已載入。安全發布會保留正式版面並排除自由移動的臨時定位。`);
   });
 })();
