@@ -430,3 +430,8 @@ body.auth-locked > *:not(#loginGate){
   border-color:#2f9d69;
   box-shadow:0 0 0 1px rgba(70,205,137,.14) inset;
 }
+
+/* V8.9: live CSS preview */
+#statusText{
+  letter-spacing:.01em;
+}

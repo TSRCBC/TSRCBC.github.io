@@ -76,7 +76,7 @@
   const CFG = window.CHINON_CONFIG;
   const $ = (s) => document.querySelector(s);
   const statusText = $('#statusText');
-  const RUNTIME_BUILD = 'V8.8';
+  const RUNTIME_BUILD = 'V8.9';
   const STORAGE_KEY = 'chinon-warm-v72';
   const INIT_KEY = 'chinon-warm-v72-init';
   const SNAPSHOT_ATTR = 'data-chinon-move-snapshot';
@@ -1213,6 +1213,18 @@
     }
     base.href = siteRootUrl().href;
 
+    // V8.9：正式網站 CSS 不再交給 GrapesJS parser 重建。
+    // 直接讓 Canvas iframe 載入與官網「同一份 styles.css」，
+    // 預覽的字型、大小、media query、:root 變數與正式站一致。
+    let liveCss = doc.head.querySelector('link[data-chinon-live-css]');
+    if (!liveCss) {
+      liveCss = doc.createElement('link');
+      liveCss.rel = 'stylesheet';
+      liveCss.setAttribute('data-chinon-live-css', '1');
+      doc.head.appendChild(liveCss);
+    }
+    liveCss.href = new URL(`styles.css?editorPreview=${Date.now()}`, siteRootUrl()).href;
+
     if (lastSiteCss) applyRootVariables(lastSiteCss);
   }
 
@@ -2168,7 +2180,9 @@
       pm.add({name:item.name,chinonFile:item.file,component:item.body});
     }
 
-    editor.setStyle(css);
+    // V8.9：正式 CSS 由 iframe 直接 <link> 載入，不再 editor.setStyle(css)。
+    // 這裡只清掉舊草稿殘留的 GrapesJS override CSS。
+    editor.setStyle('');
     pm.select(first);
     ensureCanvasEnvironment();
     requestAnimationFrame(ensureCanvasEnvironment);
@@ -2178,7 +2192,7 @@
       console.warn('重新載入後草稿儲存失敗', error);
     }
     refreshPages();
-    setStatus('V8.8 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
+    setStatus('V8.9 正式網站樣式已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
   }
 
   // -------- code --------
@@ -2186,7 +2200,7 @@
     const p = currentPage();
     const root = p?.getMainComponent?.();
     $('#htmlCode').value = root ? editor.getHtml({component:root}) : editor.getHtml();
-    $('#cssCode').value = editor.getCss();
+    $('#cssCode').value = editor.getCss(); // 僅顯示編輯器覆蓋樣式；正式 styles.css 直接由官網載入
     $('#codeDialog').showModal();
   }
 
@@ -2506,6 +2520,7 @@
     const baselineCss = String(lastSiteCss || '').trim();
     if (baselineCss) css += baselineCss + '\n\n';
 
+    // V8.9 editor.getCss() 只保存使用者在後台新增/修改的覆蓋樣式。
     css += '/* ===== CHINON EDITOR OVERRIDES ===== */\n' + editorCss;
 
     if (!css.includes('fonts.googleapis.com')) {
@@ -3017,6 +3032,6 @@ ${bodyHtml}
     // 自動草稿改存 IndexedDB。
     editor.on('update', scheduleDraftSave);
 
-    setStatus(`${RUNTIME_BUILD} 已載入。安全發布會保留正式版面並排除自由移動的臨時定位。`);
+    setStatus(`${RUNTIME_BUILD} 已載入。Canvas 直接使用正式網站 styles.css，預覽應與官網一致。`);
   });
 })();
