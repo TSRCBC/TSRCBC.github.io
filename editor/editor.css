@@ -157,3 +157,16 @@ button.direct-publish:hover{filter:brightness(1.08)}
   border-color:#a44949;
   color:#ffb6b6;
 }
+
+
+/* V8.0 full sync */
+.full-sync-note{
+  margin:0 14px 14px;
+  padding:10px 12px;
+  border:1px solid #2f6f57;
+  border-radius:8px;
+  background:#14251f;
+  color:#bde8d4;
+  font-size:12px;
+  line-height:1.55;
+}

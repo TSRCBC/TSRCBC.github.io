@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>CHINON 自助網站編輯器 V7.8</title>
+  <title>CHINON 自助網站編輯器 V8.0</title>
   <link rel="stylesheet" href="https://unpkg.com/grapesjs@0.23.6/dist/css/grapes.min.css">
   <link rel="stylesheet" href="editor.css">
 </head>
 <body>
   <header class="appbar">
     <div class="brand">
-      <strong>CHINON 編輯器 V7.8</strong>
+      <strong>CHINON 編輯器 V8.0</strong>
       <span>溫暖生活版・保留舊內容・Wix-like 基礎工具</span>
     </div>
 
@@ -62,7 +62,7 @@
       <button id="btnCode">HTML / CSS</button>
       <button id="btnSave">儲存草稿</button>
       <button id="btnReload">重新載入</button>
-      <button id="btnPublish" class="publish direct-publish">🚀 發布網站</button>
+      <button id="btnPublish" class="publish direct-publish">🚀 全站同步發布</button>
       <button id="btnExport">下載備份 ZIP</button>
     </div>
 
@@ -74,7 +74,7 @@
   </header>
 
   <div id="statusbar">
-    <span id="statusText">V7.8 啟動中…</span>
+    <span id="statusText">V8.0 啟動中…</span>
     <span>文字選取後自動出現縮放框：拖四角直接改字體大小；拖左右只改文字框寬度。</span>
   </div>
 
@@ -209,6 +209,10 @@
         </label>
       </div>
 
+      <div class="full-sync-note">
+        V8.0 會用同一個 GitHub Commit 一次同步：所有頁面、文字、字型、字體大小、粗細、間距、顏色、版面、CSS、連結，以及新上傳的圖片／背景圖。
+      </div>
+
       <div id="publishProgress" class="publish-progress">
         尚未發布。
       </div>
@@ -216,7 +220,7 @@
       <div class="dialog-actions">
         <button id="btnForgetToken" type="button">清除 Token</button>
         <button value="cancel">取消</button>
-        <button id="btnDoPublish" type="button" class="primary publish">確認發布</button>
+        <button id="btnDoPublish" type="button" class="primary publish">確認全站發布</button>
       </div>
     </form>
   </dialog>

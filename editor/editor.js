@@ -1345,7 +1345,7 @@
     await editor.store();
     editor.clearDirtyCount();
     refreshPages();
-    setStatus('V7.8 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
+    setStatus('V8.0 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
   }
 
   // -------- code --------
@@ -1373,6 +1373,117 @@
     }
   }
 
+
+
+  // -------- V8.0 full-sync asset snapshot helpers --------
+  async function dataUrlToAsset(dataUrl, suggestedBase='image') {
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const ext = extFromMime(blob.type || 'application/octet-stream');
+    return {
+      mime: blob.type || 'application/octet-stream',
+      ext,
+      base64: bytesToBase64(bytes),
+      base: suggestedBase
+    };
+  }
+
+  function dataUrlRegex() {
+    return /url\(\s*(['"]?)(data:[^)'"]+)\1\s*\)/gi;
+  }
+
+  async function replaceDataUrlsInCss(cssText, files, counterRef) {
+    let css = String(cssText || '');
+    const matches = [...css.matchAll(dataUrlRegex())];
+
+    for (const match of matches) {
+      const whole = match[0];
+      const quote = match[1] || '';
+      const dataUrl = match[2];
+      const asset = await dataUrlToAsset(dataUrl, 'background');
+      const name = `background-${counterRef.value++}.${asset.ext}`;
+      const path = `assets/uploads/${name}`;
+      files.set(path, { content: asset.base64, encoding:'base64' });
+      css = css.replace(whole, `url(${quote}${path}${quote})`);
+    }
+
+    return css;
+  }
+
+  async function replaceDataUrlsInDocument(doc, files, counterRef) {
+    // <img src="data:...">
+    for (const img of [...doc.body.querySelectorAll('img[src^="data:"]')]) {
+      const src = img.getAttribute('src');
+      const asset = await dataUrlToAsset(src, 'image');
+      const name = `image-${counterRef.value++}.${asset.ext}`;
+      const path = `assets/uploads/${name}`;
+      files.set(path, { content: asset.base64, encoding:'base64' });
+      img.setAttribute('src', path);
+    }
+
+    // poster="data:..."
+    for (const el of [...doc.body.querySelectorAll('[poster^="data:"]')]) {
+      const src = el.getAttribute('poster');
+      const asset = await dataUrlToAsset(src, 'poster');
+      const name = `poster-${counterRef.value++}.${asset.ext}`;
+      const path = `assets/uploads/${name}`;
+      files.set(path, { content: asset.base64, encoding:'base64' });
+      el.setAttribute('poster', path);
+    }
+
+    // inline style background-image:url(data:...)
+    for (const el of [...doc.body.querySelectorAll('[style*="data:"]')]) {
+      let styleText = el.getAttribute('style') || '';
+      const matches = [...styleText.matchAll(dataUrlRegex())];
+
+      for (const match of matches) {
+        const whole = match[0];
+        const quote = match[1] || '';
+        const dataUrl = match[2];
+        const asset = await dataUrlToAsset(dataUrl, 'background');
+        const name = `background-${counterRef.value++}.${asset.ext}`;
+        const path = `assets/uploads/${name}`;
+        files.set(path, { content: asset.base64, encoding:'base64' });
+        styleText = styleText.replace(whole, `url(${quote}${path}${quote})`);
+      }
+
+      el.setAttribute('style', styleText);
+    }
+
+    // srcset data urls (rare, but keep complete)
+    for (const el of [...doc.body.querySelectorAll('[srcset*="data:"]')]) {
+      const raw = el.getAttribute('srcset') || '';
+      const parts = raw.split(',').map(s => s.trim()).filter(Boolean);
+      const rebuilt = [];
+
+      for (const part of parts) {
+        const bits = part.split(/\s+/);
+        const src = bits.shift() || '';
+        if (src.startsWith('data:')) {
+          const asset = await dataUrlToAsset(src, 'responsive');
+          const name = `responsive-${counterRef.value++}.${asset.ext}`;
+          const path = `assets/uploads/${name}`;
+          files.set(path, { content: asset.base64, encoding:'base64' });
+          rebuilt.push([path, ...bits].join(' '));
+        } else {
+          rebuilt.push(part);
+        }
+      }
+
+      el.setAttribute('srcset', rebuilt.join(', '));
+    }
+  }
+
+  async function getPreservedMainJs() {
+    // 編輯器本身沒有站台 JS 編輯器，因此發布時保留正式網站目前的 main.js，
+    // 避免每次發布把原本功能清空。
+    try {
+      return await fetchText(`../main.js?t=${Date.now()}`);
+    } catch {
+      return '// CHINON site script\n';
+    }
+  }
 
   // -------- V7.8 direct GitHub publish --------
   const PUBLISH_SETTINGS_KEY = 'chinon-publish-settings-v1';
@@ -1412,7 +1523,7 @@
 
   function openPublishDialog() {
     loadPublishSettings();
-    publishProgress('準備發布。這會直接更新 GitHub main branch 與正式網站。');
+    publishProgress('準備全站同步發布。所有頁面、樣式與新圖片會在同一個 GitHub Commit 一次更新。');
     $('#publishDialog').showModal();
   }
 
@@ -1437,39 +1548,54 @@
 
   async function buildPublishFiles() {
     const files = new Map();
-    let imgCounter = 1;
+    const assetCounter = { value: 1 };
+    const assetVersion = Date.now().toString(36);
 
+    // 1) 所有頁面：文字、連結、圖片、inline style 都從目前編輯器狀態輸出
     for (const page of editor.Pages.getAll()) {
       const root = page.getMainComponent();
       let html = cleanSnapshotAttrs(editor.getHtml({component:root}));
       const doc = new DOMParser().parseFromString(`<body>${html}</body>`,'text/html');
 
-      for (const img of [...doc.body.querySelectorAll('img[src^="data:"]')]) {
-        const src = img.getAttribute('src');
-        const parsed = await dataUrlToBase64(src);
-        const ext = extFromMime(parsed.mime);
-        const name = `image-${imgCounter++}.${ext}`;
-        const path = `assets/uploads/${name}`;
-        files.set(path, { content: parsed.base64, encoding:'base64' });
-        img.setAttribute('src', path);
-      }
+      await replaceDataUrlsInDocument(doc, files, assetCounter);
 
       html = doc.body.innerHTML;
+
       files.set(pageFile(page), {
-        content: docForPage(page, html),
+        content: docForPage(page, html, assetVersion),
         encoding:'utf-8'
       });
     }
 
+    // 2) 全站 CSS：字型、大小、粗細、字距、行高、顏色、位置、RWD 等一次同步
     let css = editor.getCss() || '';
+
     if (!css.includes('fonts.googleapis.com')) {
       css = `@import url('${CFG.fontUrl}');\n\n` + css;
     }
 
-    files.set('styles.css', { content:css, encoding:'utf-8' });
-    files.set('main.js', { content:'// CHINON site script\n', encoding:'utf-8' });
+    // CSS 裡若有 data: 背景圖，也真正存成 assets/uploads 檔案
+    css = await replaceDataUrlsInCss(css, files, assetCounter);
 
-    return files;
+    files.set('styles.css', {
+      content: css,
+      encoding:'utf-8'
+    });
+
+    // 3) 保留正式網站既有 main.js，不再用空白 JS 覆蓋
+    files.set('main.js', {
+      content: await getPreservedMainJs(),
+      encoding:'utf-8'
+    });
+
+    return {
+      files,
+      assetVersion,
+      summary: {
+        pages: editor.Pages.getAll().length,
+        uploads: [...files.keys()].filter(path => path.startsWith('assets/uploads/')).length
+      }
+    };
   }
 
   async function githubApi(url, token, options={}) {
@@ -1537,7 +1663,7 @@
       return;
     }
 
-    if (!confirm(`確定直接發布到 ${owner}/${repo} 的 ${branch} 分支？\n\n發布後 GitHub Pages 會重新部署正式網站。`)) {
+    if (!confirm(`確定將目前整個網站一次同步發布到 ${owner}/${repo} 的 ${branch} 分支？\n\n發布後 GitHub Pages 會重新部署正式網站。`)) {
       return;
     }
 
@@ -1549,7 +1675,8 @@
       editor.clearDirtyCount();
 
       publishProgress('2/6 正在整理網站檔案…');
-      const files = await buildPublishFiles();
+      const snapshot = await buildPublishFiles();
+      const files = snapshot.files;
 
       publishProgress('3/6 正在讀取 GitHub 最新版本…');
       const ref = await githubApi(
@@ -1564,7 +1691,7 @@
       );
       const baseTreeSha = parentCommit.tree.sha;
 
-      publishProgress(`4/6 正在上傳 ${files.size} 個網站檔案…`);
+      publishProgress(`4/6 正在同步 ${snapshot.summary.pages} 個頁面與 ${snapshot.summary.uploads} 個新圖片資源…`);
       const entries = [];
 
       let done = 0;
@@ -1647,10 +1774,16 @@
       );
 
       publishProgress(
-        `發布成功！\nCommit：${commit.sha.slice(0,7)}\nGitHub Pages 通常還需要一點時間重新部署。`,
+        `全站同步發布成功！
+頁面：${snapshot.summary.pages}
+新圖片資源：${snapshot.summary.uploads}
+Commit：${commit.sha.slice(0,7)}
+
+文字、字型、大小、粗細、間距、顏色、版面、CSS 與新圖片已在同一個 Commit 一次送出。
+GitHub Pages 仍需要一點時間重新部署。`,
         'ok'
       );
-      setStatus('網站已送出 GitHub 發布，等待 GitHub Pages 部署。');
+      setStatus('全站已一次送出 GitHub：頁面、CSS、字型樣式與新圖片都在同一個 Commit。');
 
     } catch (error) {
       console.error(error);
@@ -1668,19 +1801,20 @@
     return d.body.innerHTML;
   }
 
-  function docForPage(page, bodyHtml) {
+  function docForPage(page, bodyHtml, assetVersion='') {
     const title = page.get('name') || 'CHINON 奇農';
+    const suffix = assetVersion ? `?v=${encodeURIComponent(assetVersion)}` : '';
     return `<!doctype html>
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>${title.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css${suffix}">
 </head>
 <body>
 ${bodyHtml}
-<script src="main.js"></script>
+<script src="main.js${suffix}"></script>
 </body>
 </html>`;
   }
@@ -1698,6 +1832,7 @@ ${bodyHtml}
     const zip = new JSZip();
     const assetFolder = zip.folder('assets').folder('uploads');
     let imgCounter = 1;
+    const assetVersion = Date.now().toString(36);
 
     for (const page of editor.Pages.getAll()) {
       const root = page.getMainComponent();
@@ -1715,7 +1850,7 @@ ${bodyHtml}
       }
 
       html = doc.body.innerHTML;
-      zip.file(pageFile(page), docForPage(page, html));
+      zip.file(pageFile(page), docForPage(page, html, assetVersion));
     }
 
     let css = editor.getCss() || '';
@@ -1886,6 +2021,6 @@ ${bodyHtml}
       localStorage.setItem(INIT_KEY,'1');
     }
     refreshPages();
-    setStatus('V7.8 已就緒。文字可雙擊修改；按「Canva縮放」可拖框縮放字體。');
+    setStatus('V8.0 已就緒。文字可雙擊修改；按「Canva縮放」可拖框縮放字體。');
   });
 })();
