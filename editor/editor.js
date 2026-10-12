@@ -5,8 +5,8 @@
   const CFG = window.CHINON_CONFIG;
   const $ = (s) => document.querySelector(s);
   const statusText = $('#statusText');
-  const STORAGE_KEY = 'chinon-warm-v7';
-  const INIT_KEY = 'chinon-warm-v7-init';
+  const STORAGE_KEY = 'chinon-warm-v72';
+  const INIT_KEY = 'chinon-warm-v72-init';
   const SNAPSHOT_ATTR = 'data-chinon-move-snapshot';
   const SITE_PAGES = [
     { file:'index.html', name:'首頁' },
@@ -121,6 +121,24 @@
   });
 
   function setStatus(msg) { statusText.textContent = msg; }
+
+  function ensureCanvasBase() {
+    const doc = editor.Canvas.getDocument?.();
+    if (!doc || !doc.head) return;
+
+    let base = doc.head.querySelector('base[data-chinon-editor-base]');
+    if (!base) {
+      base = doc.createElement('base');
+      base.setAttribute('data-chinon-editor-base', '1');
+      doc.head.insertBefore(base, doc.head.firstChild);
+    }
+
+    // /editor/ 裡的畫布應該以正式網站根目錄作為相對路徑基準。
+    // 例如 assets/chinon-logo.png 會解析成 /assets/chinon-logo.png，
+    // 而不是錯誤的 /editor/assets/chinon-logo.png。
+    base.href = new URL('../', window.location.href).href;
+  }
+
 
   function selectedOrWarn() {
     const c = editor.getSelected();
@@ -662,6 +680,7 @@
   }
 
   async function loadLive({ask=true}={}) {
+    ensureCanvasBase();
     if (ask && !confirm('重新載入會用 GitHub Pages 上的正式網站覆蓋目前瀏覽器內的編輯內容。繼續？')) return;
     setStatus('正在載入完整網站…');
 
@@ -904,6 +923,7 @@ ${bodyHtml}
   });
 
   editor.on('load',async()=>{
+    ensureCanvasBase();
     if (!localStorage.getItem(INIT_KEY)) {
       await loadLive({ask:false});
       localStorage.setItem(INIT_KEY,'1');
