@@ -416,3 +416,12 @@ body.auth-locked > *:not(#loginGate){
 #btnImportBackup{
   border-color:#49607b;
 }
+
+#btnResetPagePosition{
+  border-color:#9a6d34;
+  background:#3a2c19;
+  color:#ffe1aa;
+}
+#btnResetPagePosition:hover{
+  background:#4b3820;
+}

@@ -76,7 +76,7 @@
   const CFG = window.CHINON_CONFIG;
   const $ = (s) => document.querySelector(s);
   const statusText = $('#statusText');
-  const RUNTIME_BUILD = 'V8.6';
+  const RUNTIME_BUILD = 'V8.7';
   const STORAGE_KEY = 'chinon-warm-v72';
   const INIT_KEY = 'chinon-warm-v72-init';
   const SNAPSHOT_ATTR = 'data-chinon-move-snapshot';
@@ -1310,6 +1310,68 @@
     setStatus('已恢復第一次移動前的位置。');
   }
 
+  function restoreComponentPositionFromSnapshot(c) {
+    const attrs = c.getAttributes?.() || {};
+    if (!attrs[SNAPSHOT_ATTR]) return false;
+
+    let snap;
+    try {
+      snap = JSON.parse(decodeURIComponent(attrs[SNAPSHOT_ATTR]));
+    } catch {
+      return false;
+    }
+
+    const style = { ...(c.getStyle?.() || {}) };
+    ['position','top','right','bottom','left','transform'].forEach(k => {
+      const v = snap[k];
+      if (v === null || v === '') delete style[k];
+      else style[k] = v;
+    });
+
+    c.setStyle(style);
+    c.removeAttributes(SNAPSHOT_ATTR);
+    return true;
+  }
+
+  function walkComponents(component, fn) {
+    if (!component) return;
+    fn(component);
+    const children = component.components?.();
+    if (!children) return;
+    const list = children.models || children;
+    if (typeof list.forEach === 'function') {
+      list.forEach(child => walkComponents(child, fn));
+    }
+  }
+
+  function resetCurrentPagePositions() {
+    const page = currentPage();
+    const root = page?.getMainComponent?.();
+    if (!root) {
+      setStatus('找不到目前頁面。');
+      return;
+    }
+
+    if (!confirm(
+      '這會一次恢復「本頁所有曾經用自由移動拖過的元件」到第一次拖動前的位置。\\n\\n' +
+      '文字、字型、大小、顏色、圖片都不會重置。\\n\\n確定繼續？'
+    )) return;
+
+    let count = 0;
+    walkComponents(root, c => {
+      if (restoreComponentPositionFromSnapshot(c)) count += 1;
+    });
+
+    editor.refresh();
+    scheduleDraftSave();
+
+    if (count > 0) {
+      setStatus(`本頁已恢復 ${count} 個自由移動元件的位置。確認正常後再全站同步發布。`);
+    } else {
+      setStatus('找不到可恢復的移動紀錄。若之前已重新載入正式網站，需從 GitHub History 還原上一版。');
+    }
+  }
+
   // -------- precise free move --------
   let moveState = { cleanup: null, component: null, oldDraggable: null };
 
@@ -1333,11 +1395,33 @@
     if (!c) return;
 
     stopMove();
-    ensureMoveSnapshot(c);
 
     const el = c.getEl?.();
     const doc = editor.Canvas.getDocument?.();
     if (!el || !doc) return;
+
+    const canvasWidth = doc.documentElement?.clientWidth || 1;
+    const rect = el.getBoundingClientRect();
+    const childCollection = c.components?.();
+    const childCount = childCollection?.length || childCollection?.models?.length || 0;
+    const tag = String(c.get('tagName') || '').toLowerCase();
+    const isLargeStructure =
+      childCount > 0 &&
+      (rect.width >= canvasWidth * 0.68 || ['header','nav','main','section','footer'].includes(tag));
+
+    if (isLargeStructure) {
+      const ok = confirm(
+        '⚠️ 你現在選到大型版面容器。\n\n' +
+        '拖動它會連同裡面的文字、圖片、按鈕一起移位，正式網站也會跟著跑掉。\n\n' +
+        '確定要移動整個區塊嗎？'
+      );
+      if (!ok) {
+        setStatus('已取消自由移動。請改選裡面的文字、圖片或較小元件。');
+        return;
+      }
+    }
+
+    ensureMoveSnapshot(c);
 
     const oldDraggable = c.get('draggable');
     c.set('draggable', false);
@@ -2092,7 +2176,7 @@
       console.warn('重新載入後草稿儲存失敗', error);
     }
     refreshPages();
-    setStatus('V8.6 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
+    setStatus('V8.7 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
   }
 
   // -------- code --------
@@ -2662,6 +2746,7 @@ ${bodyHtml}
 
   $('#btnPixelMove').addEventListener('click',armMove);
   $('#btnResetMove').addEventListener('click',restoreMove);
+  $('#btnResetPagePosition').addEventListener('click',resetCurrentPagePositions);
   $('#btnLayerUp').addEventListener('click',()=>changeLayer(1));
   $('#btnLayerDown').addEventListener('click',()=>changeLayer(-1));
   $('#btnLayerTop').addEventListener('click',()=>changeLayer(0,true));
@@ -2820,6 +2905,6 @@ ${bodyHtml}
     // 自動草稿改存 IndexedDB。
     editor.on('update', scheduleDraftSave);
 
-    setStatus(`${RUNTIME_BUILD} 程式已載入。草稿使用 IndexedDB，不再使用舊 localStorage。`);
+    setStatus(`${RUNTIME_BUILD} 已載入。若版面被自由移動拖亂，可按「重置本頁位置」一次恢復。`);
   });
 })();
