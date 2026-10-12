@@ -148,6 +148,226 @@
 
   function setStatus(msg) { statusText.textContent = msg; }
 
+  // -------- V7.7 右側功能列繁體中文化 --------
+  const PANEL_ZH = new Map([
+    ['Classes', '類別'],
+    ['Class', '類別'],
+    ['Selected:', '已選取：'],
+    ['Selected', '已選取'],
+    ['Select an element before using Style Manager', '請先選取一個元素，再調整樣式'],
+    ['Select an element before using the Style Manager', '請先選取一個元素，再調整樣式'],
+
+    ['Position', '定位方式'],
+    ['Top', '上'],
+    ['Right', '右'],
+    ['Bottom', '下'],
+    ['Left', '左'],
+    ['Z index', '圖層順序'],
+    ['Z-index', '圖層順序'],
+    ['Width', '寬度'],
+    ['Height', '高度'],
+    ['Min width', '最小寬度'],
+    ['Min height', '最小高度'],
+    ['Max width', '最大寬度'],
+    ['Max height', '最大高度'],
+    ['Display', '顯示方式'],
+    ['Overflow', '超出內容'],
+    ['Transform', '變形'],
+
+    ['Font family', '字型'],
+    ['Font size', '字體大小'],
+    ['Font weight', '粗細'],
+    ['Font style', '斜體'],
+    ['Text decoration', '文字裝飾'],
+    ['Line height', '行高'],
+    ['Letter spacing', '字距'],
+    ['Color', '文字顏色'],
+    ['Text align', '對齊'],
+    ['Text shadow', '文字陰影'],
+
+    ['Margin top', '上外距'],
+    ['Margin right', '右外距'],
+    ['Margin bottom', '下外距'],
+    ['Margin left', '左外距'],
+    ['Padding top', '上內距'],
+    ['Padding right', '右內距'],
+    ['Padding bottom', '下內距'],
+    ['Padding left', '左內距'],
+
+    ['Background color', '背景顏色'],
+    ['Background image', '背景圖片'],
+    ['Background position', '背景位置'],
+    ['Background size', '背景尺寸'],
+    ['Background repeat', '背景重複'],
+    ['Border top width', '上框線寬度'],
+    ['Border right width', '右框線寬度'],
+    ['Border bottom width', '下框線寬度'],
+    ['Border left width', '左框線寬度'],
+    ['Border style', '框線樣式'],
+    ['Border color', '框線顏色'],
+    ['Border radius', '圓角'],
+    ['Opacity', '透明度'],
+    ['Box shadow', '區塊陰影'],
+
+    ['Flex direction', '排列方向'],
+    ['Flex wrap', '換行方式'],
+    ['Justify content', '主軸對齊'],
+    ['Align items', '交叉軸對齊'],
+    ['Align content', '多行對齊'],
+    ['Gap', '項目間距'],
+    ['Grid template columns', '網格欄設定'],
+    ['Grid template rows', '網格列設定'],
+
+    ['Device', '裝置'],
+    ['Desktop', '桌機'],
+    ['Tablet', '平板'],
+    ['Mobile', '手機']
+  ]);
+
+  const OPTION_ZH = new Map([
+    ['static', '靜態'],
+    ['relative', '相對'],
+    ['absolute', '絕對'],
+    ['fixed', '固定'],
+    ['sticky', '黏著'],
+
+    ['block', '區塊'],
+    ['inline', '行內'],
+    ['inline-block', '行內區塊'],
+    ['flex', '彈性排列'],
+    ['inline-flex', '行內彈性排列'],
+    ['grid', '網格排列'],
+    ['inline-grid', '行內網格排列'],
+    ['none', '無／隱藏'],
+
+    ['visible', '顯示'],
+    ['hidden', '隱藏'],
+    ['scroll', '捲動'],
+    ['auto', '自動'],
+
+    ['normal', '一般'],
+    ['bold', '粗體'],
+    ['bolder', '較粗'],
+    ['lighter', '較細'],
+    ['italic', '斜體'],
+    ['oblique', '傾斜'],
+    ['underline', '底線'],
+    ['overline', '上線'],
+    ['line-through', '刪除線'],
+
+    ['left', '靠左'],
+    ['center', '置中'],
+    ['right', '靠右'],
+    ['justify', '左右對齊'],
+
+    ['repeat', '重複'],
+    ['no-repeat', '不重複'],
+    ['repeat-x', '水平重複'],
+    ['repeat-y', '垂直重複'],
+    ['cover', '填滿裁切'],
+    ['contain', '完整顯示'],
+
+    ['solid', '實線'],
+    ['dashed', '虛線'],
+    ['dotted', '點線'],
+    ['double', '雙線'],
+
+    ['row', '橫向'],
+    ['row-reverse', '橫向反轉'],
+    ['column', '直向'],
+    ['column-reverse', '直向反轉'],
+    ['nowrap', '不換行'],
+    ['wrap', '換行'],
+    ['wrap-reverse', '反向換行'],
+
+    ['flex-start', '靠開頭'],
+    ['flex-end', '靠結尾'],
+    ['space-between', '兩端分散'],
+    ['space-around', '環繞分散'],
+    ['space-evenly', '平均分散'],
+    ['stretch', '拉伸'],
+    ['baseline', '基準線']
+  ]);
+
+  function translatePanelText(root=document) {
+    const scopes = [
+      ...root.querySelectorAll?.('.gjs-sm-sectors, .gjs-clm-tags, .gjs-sm-sector, .gjs-sm-property, .gjs-field, .gjs-field-select') || []
+    ];
+
+    const targets = scopes.length ? scopes : [root];
+
+    targets.forEach(scope => {
+      const walker = document.createTreeWalker(
+        scope,
+        NodeFilter.SHOW_TEXT,
+        {
+          acceptNode(node) {
+            const parent = node.parentElement;
+            if (!parent) return NodeFilter.FILTER_REJECT;
+            if (['SCRIPT','STYLE','TEXTAREA'].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
+            return NodeFilter.FILTER_ACCEPT;
+          }
+        }
+      );
+
+      const textNodes = [];
+      let node;
+      while ((node = walker.nextNode())) textNodes.push(node);
+
+      textNodes.forEach(textNode => {
+        const raw = textNode.nodeValue || '';
+        const trimmed = raw.trim();
+        if (!trimmed) return;
+
+        let translated = PANEL_ZH.get(trimmed);
+
+        if (!translated && trimmed.startsWith('Selected:')) {
+          translated = trimmed.replace(/^Selected:/, '已選取：');
+        }
+
+        if (translated) {
+          textNode.nodeValue = raw.replace(trimmed, translated);
+        }
+      });
+
+      scope.querySelectorAll?.('option').forEach(option => {
+        const raw = (option.textContent || '').trim();
+        const value = (option.value || '').trim();
+        const translated = OPTION_ZH.get(raw) || OPTION_ZH.get(value);
+        if (translated) option.textContent = translated;
+      });
+
+      scope.querySelectorAll?.('input[placeholder]').forEach(input => {
+        const p = input.getAttribute('placeholder');
+        if (p && PANEL_ZH.has(p)) input.setAttribute('placeholder', PANEL_ZH.get(p));
+      });
+
+      scope.querySelectorAll?.('[title]').forEach(el => {
+        const t = el.getAttribute('title');
+        if (t && PANEL_ZH.has(t)) el.setAttribute('title', PANEL_ZH.get(t));
+      });
+    });
+  }
+
+  let panelZhObserver = null;
+
+  function enableChineseRightPanel() {
+    translatePanelText(document);
+
+    if (panelZhObserver) return;
+
+    panelZhObserver = new MutationObserver(() => {
+      requestAnimationFrame(() => translatePanelText(document));
+    });
+
+    panelZhObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+  }
+
+
   let lastSiteCss = '';
 
   function siteRootUrl() {
@@ -1125,7 +1345,7 @@
     await editor.store();
     editor.clearDirtyCount();
     refreshPages();
-    setStatus('V7.6 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
+    setStatus('V7.7 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
   }
 
   // -------- code --------
@@ -1333,6 +1553,7 @@ ${bodyHtml}
   let autoTextResizeTimer = null;
 
   editor.on('component:selected',(c)=>{
+    requestAnimationFrame(() => translatePanelText(document));
     if (moveState.component && moveState.component !== c) stopMove();
 
     if (autoTextResizeTimer) {
@@ -1363,12 +1584,13 @@ ${bodyHtml}
   });
 
   editor.on('load',async()=>{
+    enableChineseRightPanel();
     ensureCanvasBase();
     if (!localStorage.getItem(INIT_KEY)) {
       await loadLive({ask:false});
       localStorage.setItem(INIT_KEY,'1');
     }
     refreshPages();
-    setStatus('V7.6 已就緒。文字可雙擊修改；按「Canva縮放」可拖框縮放字體。');
+    setStatus('V7.7 已就緒。文字可雙擊修改；按「Canva縮放」可拖框縮放字體。');
   });
 })();
