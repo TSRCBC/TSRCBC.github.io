@@ -102,3 +102,12 @@ dialog::backdrop{background:rgba(0,0,0,.65)}
   .devicebar{margin-left:0}
   #statusbar span:last-child{display:none}
 }
+
+
+/* V7.3 Canva-like resize button */
+#btnResize.mode-active {
+  background: #7657ef;
+  border-color: #d9d1ff;
+  outline: 2px solid rgba(217,209,255,.45);
+  outline-offset: 1px;
+}

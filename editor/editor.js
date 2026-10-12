@@ -580,11 +580,293 @@
     }
   }
 
+  // -------- V7.3 Canva-like text resize --------
+  const TEXT_TAGS = new Set([
+    'span','p','h1','h2','h3','h4','h5','h6',
+    'a','button','strong','em','small','label','li'
+  ]);
+
+  let textResizeState = {
+    component: null,
+    overlay: null,
+    cleanup: null
+  };
+
+  function textResizeTarget(component) {
+    if (!component) return null;
+
+    let target = component;
+    let tag = String(target.get('tagName') || '').toLowerCase();
+
+    // 如果點到 H1/H2/P 裡面的 Span/Strong，直接提升到外層文字框，
+    // 使用者不用理解 HTML 階層。
+    if (['span','strong','em','small'].includes(tag)) {
+      const parent = target.parent?.();
+      const parentTag = String(parent?.get('tagName') || '').toLowerCase();
+      if (TEXT_TAGS.has(parentTag)) {
+        target = parent;
+        tag = parentTag;
+      }
+    }
+
+    return TEXT_TAGS.has(tag) ? target : null;
+  }
+
+  function removeTextResizeOverlay(message='') {
+    if (textResizeState.cleanup) {
+      try { textResizeState.cleanup(); } catch {}
+    }
+    if (textResizeState.overlay?.remove) {
+      try { textResizeState.overlay.remove(); } catch {}
+    }
+
+    textResizeState = { component:null, overlay:null, cleanup:null };
+    $('#btnResize')?.classList.remove('mode-active');
+
+    if (message) setStatus(message);
+  }
+
+  function ensureTextResizeCanvasStyle(doc) {
+    if (doc.getElementById('chinon-canva-text-resize-style')) return;
+
+    const style = doc.createElement('style');
+    style.id = 'chinon-canva-text-resize-style';
+    style.textContent = `
+      .chinon-text-resize-box{
+        position:fixed;
+        z-index:2147483000;
+        border:2px solid #7657ef;
+        pointer-events:none;
+        box-sizing:border-box;
+      }
+      .chinon-text-resize-handle{
+        position:absolute;
+        width:12px;
+        height:12px;
+        border-radius:50%;
+        background:#fff;
+        border:2px solid #7657ef;
+        box-sizing:border-box;
+        pointer-events:auto;
+        touch-action:none;
+      }
+      .chinon-text-resize-handle[data-dir="nw"]{left:-7px;top:-7px;cursor:nwse-resize}
+      .chinon-text-resize-handle[data-dir="ne"]{right:-7px;top:-7px;cursor:nesw-resize}
+      .chinon-text-resize-handle[data-dir="sw"]{left:-7px;bottom:-7px;cursor:nesw-resize}
+      .chinon-text-resize-handle[data-dir="se"]{right:-7px;bottom:-7px;cursor:nwse-resize}
+
+      .chinon-text-resize-handle[data-dir="w"]{
+        left:-6px;top:50%;transform:translateY(-50%);
+        width:10px;height:22px;border-radius:6px;cursor:ew-resize;
+      }
+      .chinon-text-resize-handle[data-dir="e"]{
+        right:-6px;top:50%;transform:translateY(-50%);
+        width:10px;height:22px;border-radius:6px;cursor:ew-resize;
+      }
+      .chinon-text-size-badge{
+        position:absolute;
+        left:50%;
+        top:-34px;
+        transform:translateX(-50%);
+        padding:4px 8px;
+        border-radius:6px;
+        background:#7657ef;
+        color:#fff;
+        font:600 11px/1.2 system-ui,-apple-system,sans-serif;
+        white-space:nowrap;
+        pointer-events:none;
+        box-shadow:0 4px 14px rgba(0,0,0,.18);
+      }
+    `;
+    doc.head.appendChild(style);
+  }
+
+  function openCanvaTextResize(component) {
+    removeTextResizeOverlay();
+
+    const target = textResizeTarget(component);
+    if (!target) return false;
+
+    if (target !== component) editor.select(target);
+
+    const el = target.getEl?.();
+    const doc = editor.Canvas.getDocument?.();
+    const win = editor.Canvas.getWindow?.();
+
+    if (!el || !doc || !win) {
+      setStatus('目前文字框尚未準備完成，請重新點選文字後再按一次 Canva縮放。');
+      return true;
+    }
+
+    ensureTextResizeCanvasStyle(doc);
+
+    const overlay = doc.createElement('div');
+    overlay.className = 'chinon-text-resize-box';
+
+    const badge = doc.createElement('div');
+    badge.className = 'chinon-text-size-badge';
+    overlay.appendChild(badge);
+
+    ['nw','ne','sw','se','w','e'].forEach(dir => {
+      const handle = doc.createElement('div');
+      handle.className = 'chinon-text-resize-handle';
+      handle.dataset.dir = dir;
+      overlay.appendChild(handle);
+    });
+
+    doc.body.appendChild(overlay);
+
+    textResizeState.component = target;
+    textResizeState.overlay = overlay;
+    $('#btnResize')?.classList.add('mode-active');
+
+    const updateOverlay = () => {
+      if (!target.getEl?.() || !overlay.isConnected) return;
+
+      const rect = target.getEl().getBoundingClientRect();
+      const computed = win.getComputedStyle(target.getEl());
+      const fontSize = Math.round(parseFloat(computed.fontSize) || 16);
+
+      overlay.style.left = `${rect.left}px`;
+      overlay.style.top = `${rect.top}px`;
+      overlay.style.width = `${Math.max(2, rect.width)}px`;
+      overlay.style.height = `${Math.max(2, rect.height)}px`;
+      badge.textContent = `${fontSize}px`;
+    };
+
+    const listeners = [];
+
+    const listen = (node, type, fn, opts) => {
+      node.addEventListener(type, fn, opts);
+      listeners.push(() => node.removeEventListener(type, fn, opts));
+    };
+
+    const beginResize = (ev) => {
+      const handle = ev.target.closest?.('.chinon-text-resize-handle');
+      if (!handle || !overlay.contains(handle)) return;
+
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      const dir = handle.dataset.dir;
+      const element = target.getEl();
+      if (!element) return;
+
+      const rect = element.getBoundingClientRect();
+      const computed = win.getComputedStyle(element);
+
+      const startFont = Math.max(6, parseFloat(computed.fontSize) || 16);
+      const startWidth = Math.max(10, rect.width);
+      const startHeight = Math.max(10, rect.height);
+
+      // inline 元素要先變成 inline-block，width 才能像 Canva 文字框一樣調整。
+      if (computed.display === 'inline') {
+        target.addStyle({ display:'inline-block' });
+      }
+
+      const sx = ev.clientX;
+      const sy = ev.clientY;
+
+      const isCorner = ['nw','ne','sw','se'].includes(dir);
+
+      let oppositeX = rect.left;
+      let oppositeY = rect.top;
+
+      if (dir === 'nw') { oppositeX = rect.right; oppositeY = rect.bottom; }
+      if (dir === 'ne') { oppositeX = rect.left;  oppositeY = rect.bottom; }
+      if (dir === 'sw') { oppositeX = rect.right; oppositeY = rect.top; }
+      if (dir === 'se') { oppositeX = rect.left;  oppositeY = rect.top; }
+
+      const startDistance = Math.max(
+        20,
+        Math.hypot(sx - oppositeX, sy - oppositeY)
+      );
+
+      const move = (moveEv) => {
+        moveEv.preventDefault();
+        moveEv.stopPropagation();
+
+        if (isCorner) {
+          // 四角：像 Canva 一樣整個文字框等比例縮放。
+          const currentDistance = Math.max(
+            5,
+            Math.hypot(moveEv.clientX - oppositeX, moveEv.clientY - oppositeY)
+          );
+
+          const scale = Math.min(5, Math.max(.2, currentDistance / startDistance));
+          const newFont = Math.min(220, Math.max(6, startFont * scale));
+          const newWidth = Math.max(24, startWidth * scale);
+
+          target.addStyle({
+            'font-size': `${newFont.toFixed(1)}px`,
+            'width': `${newWidth.toFixed(1)}px`
+          });
+
+          badge.textContent = `${Math.round(newFont)}px`;
+          setStatus(`Canva縮放：字體 ${Math.round(newFont)}px`);
+        } else {
+          // 左右中點：只改文字框寬度，不改字體，讓文字自動換行。
+          const dx = moveEv.clientX - sx;
+          let newWidth = startWidth;
+
+          if (dir === 'e') newWidth = startWidth + dx;
+          if (dir === 'w') newWidth = startWidth - dx;
+
+          newWidth = Math.max(40, newWidth);
+
+          target.addStyle({
+            'width': `${newWidth.toFixed(1)}px`
+          });
+
+          setStatus(`文字框寬度：${Math.round(newWidth)}px`);
+        }
+
+        editor.refresh();
+        requestAnimationFrame(updateOverlay);
+      };
+
+      const end = (upEv) => {
+        upEv.preventDefault();
+        upEv.stopPropagation();
+        doc.removeEventListener('pointermove', move, true);
+        doc.removeEventListener('pointerup', end, true);
+        doc.removeEventListener('pointercancel', end, true);
+        editor.refresh();
+        requestAnimationFrame(updateOverlay);
+      };
+
+      doc.addEventListener('pointermove', move, true);
+      doc.addEventListener('pointerup', end, true);
+      doc.addEventListener('pointercancel', end, true);
+    };
+
+    listen(overlay, 'pointerdown', beginResize, true);
+    listen(win, 'resize', updateOverlay);
+    listen(doc, 'scroll', updateOverlay, true);
+
+    textResizeState.cleanup = () => {
+      listeners.forEach(fn => {
+        try { fn(); } catch {}
+      });
+    };
+
+    updateOverlay();
+    setStatus('Canva文字縮放已開啟：拖四個角改字體大小；拖左右把手只改文字框寬度。');
+    return true;
+  }
+
   function enableResize() {
-    const c = selectedOrWarn(); if (!c) return;
+    const c = selectedOrWarn();
+    if (!c) return;
+
+    // 文字元件：使用自製 Canva 式縮放框。
+    if (openCanvaTextResize(c)) return;
+
+    // 圖片、區塊等非文字元件：保留 GrapesJS 原生尺寸縮放。
+    removeTextResizeOverlay();
     c.set('resizable', true);
     editor.refresh();
-    setStatus('已開啟縮放控制點；拖曳元件邊緣/角落調整大小。');
+    setStatus('已開啟一般縮放：拖曳元件邊緣／角落調整圖片或區塊大小。');
   }
 
   // -------- quick style --------
@@ -603,17 +885,17 @@
     const align = $('#quickAlign').value;
     const shadow = $('#quickShadow').value;
 
-    if (font) s.fontFamily = font;
-    if (fs) s.fontSize = `${fs}px`;
+    if (font) s['font-family'] = font;
+    if (fs) s['font-size'] = `${fs}px`;
     if ($('#quickColor').value) s.color = $('#quickColor').value;
-    if ($('#quickBg').value) s.backgroundColor = $('#quickBg').value;
-    if (radius !== '') s.borderRadius = `${radius}px`;
+    if ($('#quickBg').value) s['background-color'] = $('#quickBg').value;
+    if (radius !== '') s['border-radius'] = `${radius}px`;
     if (opacity !== '') s.opacity = String(Math.max(0,Math.min(100,Number(opacity)))/100);
-    if (align) s.textAlign = align;
+    if (align) s['text-align'] = align;
     if (shadow) {
       const tag = String(c.get('tagName')||'').toLowerCase();
-      if (['p','span','h1','h2','h3','h4','h5','h6','a','strong'].includes(tag)) s.textShadow = shadow;
-      else s.boxShadow = shadow;
+      if (['p','span','h1','h2','h3','h4','h5','h6','a','strong'].includes(tag)) s['text-shadow'] = shadow;
+      else s['box-shadow'] = shadow;
     }
     c.addStyle(s);
     setStatus('快速樣式已套用。');
@@ -723,7 +1005,7 @@
     await editor.store();
     editor.clearDirtyCount();
     refreshPages();
-    setStatus('溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
+    setStatus('V7.3 溫暖生活版已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
   }
 
   // -------- code --------
@@ -915,11 +1197,19 @@ ${bodyHtml}
     });
   });
 
-  editor.on('page:select',refreshPages);
+  editor.on('page:select',()=>{
+    removeTextResizeOverlay();
+    refreshPages();
+  });
   editor.on('component:selected',(c)=>{
     if (moveState.component && moveState.component !== c) stopMove();
+
+    if (textResizeState.component && textResizeState.component !== c) {
+      removeTextResizeOverlay();
+    }
+
     const name = c.getName?.() || c.get('tagName') || '元件';
-    setStatus(`已選取：${name}。可改樣式、超連結、圖片、移動、複製或刪除。`);
+    setStatus(`已選取：${name}。文字可按「Canva縮放」直接拖框調字體大小。`);
   });
 
   editor.on('load',async()=>{
@@ -929,6 +1219,6 @@ ${bodyHtml}
       localStorage.setItem(INIT_KEY,'1');
     }
     refreshPages();
-    setStatus('編輯器已就緒。雙擊文字可直接修改。');
+    setStatus('V7.3 已就緒。文字可雙擊修改；按「Canva縮放」可拖框縮放字體。');
   });
 })();
