@@ -4,9 +4,9 @@
   <meta name="robots" content="noindex,nofollow,noarchive">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>CHINON 自助網站編輯器 V8.9</title>
+  <title>CHINON 穩定內容編輯器 V9.0</title>
   <link rel="stylesheet" href="https://unpkg.com/grapesjs@0.23.6/dist/css/grapes.min.css">
-  <link rel="stylesheet" href="editor.css?v=89">
+  <link rel="stylesheet" href="editor.css?v=90">
 </head>
 <body class="auth-locked">
 
@@ -52,30 +52,30 @@
 
   <header class="appbar">
     <div class="brand">
-      <strong>CHINON 編輯器 V8.9</strong>
-      <span>溫暖生活版・保留舊內容・Wix-like 基礎工具</span>
+      <strong>CHINON 穩定編輯器 V9.0</strong>
+      <span>固定官網版面・只更新內容／圖片／個別樣式</span>
     </div>
 
     <div class="pages">
       <select id="pageSelect" title="選擇頁面"></select>
-      <button id="btnAddPage">＋頁面</button>
-      <button id="btnRenamePage">改名</button>
-      <button id="btnDeletePage">刪頁</button>
+      <button id="btnAddPage" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">＋頁面</button>
+      <button id="btnRenamePage" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">改名</button>
+      <button id="btnDeletePage" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">刪頁</button>
     </div>
 
     <div class="addbar">
-      <button id="btnAddText">＋文字</button>
-      <button id="btnAddHeading">＋標題</button>
-      <button id="btnAddImage">＋圖片</button>
-      <button id="btnAddButton">＋按鈕</button>
-      <button id="btnAddLinkText">＋連結文字</button>
-      <button id="btnAddSection">＋區塊</button>
-      <button id="btnAddColumns">＋雙欄</button>
-      <button id="btnAddThreeColumns">＋三欄</button>
-      <button id="btnAddDivider">＋分隔線</button>
-      <button id="btnAddSpacer">＋留白</button>
-      <button id="btnAddShape">＋圖形</button>
-      <button id="btnAddVideo">＋影片</button>
+      <button id="btnAddText" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">＋文字</button>
+      <button id="btnAddHeading" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">＋標題</button>
+      <button id="btnAddImage" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">＋圖片</button>
+      <button id="btnAddButton" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">＋按鈕</button>
+      <button id="btnAddLinkText" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">＋連結文字</button>
+      <button id="btnAddSection" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">＋區塊</button>
+      <button id="btnAddColumns" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">＋雙欄</button>
+      <button id="btnAddThreeColumns" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">＋三欄</button>
+      <button id="btnAddDivider" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">＋分隔線</button>
+      <button id="btnAddSpacer" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">＋留白</button>
+      <button id="btnAddShape" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">＋圖形</button>
+      <button id="btnAddVideo" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">＋影片</button>
     </div>
 
     <input id="imagePicker" type="file" accept="image/*" hidden>
@@ -83,15 +83,15 @@
     <input id="backgroundImagePicker" type="file" accept="image/*" hidden>
 
     <div class="editbar">
-      <button id="btnPixelMove" class="primary">✥ 自由移動</button>
+      <button id="btnPixelMove" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改" class="primary">✥ 自由移動</button>
       <button id="btnResize" title="文字選取後會自動顯示 Canva 式縮放框；四角拖曳直接放大/縮小字體，左右拖曳只改文字框寬度。">▣ 文字縮放</button>
-      <button id="btnDuplicate">複製</button>
-      <button id="btnDelete">刪除</button>
-      <button id="btnResetMove">↶ 原位</button>
-      <button id="btnResetPagePosition" title="一次恢復本頁所有曾用自由移動拖過的元件">⟲ 重置本頁位置</button>
-      <button id="btnLayerUp">上一層</button>
-      <button id="btnLayerDown">下一層</button>
-      <button id="btnLayerTop">最上層</button>
+      <button id="btnDuplicate" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">複製</button>
+      <button id="btnDelete" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">刪除</button>
+      <button id="btnResetMove" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">↶ 原位</button>
+      <button id="btnResetPagePosition" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改" title="一次恢復本頁所有曾用自由移動拖過的元件">⟲ 重置本頁位置</button>
+      <button id="btnLayerUp" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">上一層</button>
+      <button id="btnLayerDown" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">下一層</button>
+      <button id="btnLayerTop" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">最上層</button>
     </div>
 
     <div class="actionbar">
@@ -99,16 +99,20 @@
       <button id="btnUnlink">移除連結</button>
       <button id="btnReplaceImage">換圖片</button>
       <button id="btnBackgroundImage">背景圖</button>
+      <button id="btnImgLeft" title="選取圖片後靠左">圖片靠左</button>
+      <button id="btnImgCenter" title="選取圖片後自動置中">圖片置中</button>
+      <button id="btnImgRight" title="選取圖片後靠右">圖片靠右</button>
+      <button id="btnBgCenter" title="選取區塊後讓背景圖正中央對齊">背景置中</button>
       <button id="btnQuickStyle">🎨 快速樣式</button>
       <button id="btnUndo">↶ Undo</button>
       <button id="btnRedo">↷ Redo</button>
-      <button id="btnCode">HTML / CSS</button>
+      <button id="btnCode" disabled class="stable-disabled" title="V9 穩定模式：為避免官網跑版，暫停結構／定位修改">HTML / CSS</button>
       <button id="btnSave">儲存草稿</button>
       <button id="btnReload">重新載入</button>
-      <button id="btnPublish" class="publish direct-publish">🚀 安全發布</button>
+      <button id="btnPublish" class="publish direct-publish">🚀 穩定發布</button>
       <button id="btnImportBackup">匯入備份</button>
       <input id="backupFileInput" type="file" accept=".zip,.json,application/zip,application/json" hidden>
-      <button id="btnExport">下載備份 ZIP</button>
+      <button id="btnExport">下載草稿備份 ZIP</button>
     </div>
 
     <div class="devicebar">
@@ -119,8 +123,8 @@
   </header>
 
   <div id="statusbar">
-    <span id="statusText">V8.9 啟動中…</span>
-    <span>文字選取後自動出現縮放框：拖四角直接改字體大小；拖左右只改文字框寬度。</span>
+    <span id="statusText">V9.0 啟動中…</span>
+    <span>V9 穩定模式：正式 HTML 結構與 styles.css 不重寫；只發布你改過的文字、圖片、連結與個別樣式。</span>
   </div>
 
   <main id="editorShell">
@@ -254,8 +258,11 @@
         </label>
       </div>
 
-      <div class="full-sync-note">
-        V8.0 會用同一個 GitHub Commit 一次同步：所有頁面、文字、字型、字體大小、粗細、間距、顏色、版面、CSS、連結，以及新上傳的圖片／背景圖。
+      <div class="full-sync-note stable-publish-note">
+        <strong>V9 穩定發布</strong><br>
+        不會整頁重建 HTML，也不會覆蓋 styles.css / main.js。<br>
+        只修改已存在元素的：文字、圖片、連結、字型、大小、粗細、顏色、間距、背景與圖片對齊。<br>
+        若正式網站在你「重新載入」之後被其他操作更新，發布會自動停止，避免覆蓋新版。
       </div>
 
       <div id="publishProgress" class="publish-progress">
@@ -265,7 +272,7 @@
       <div class="dialog-actions">
         <button id="btnForgetToken" type="button">清除 Token</button>
         <button value="cancel">取消</button>
-        <button id="btnDoPublish" type="button" class="primary publish">確認安全發布</button>
+        <button id="btnDoPublish" type="button" class="primary publish">確認穩定發布</button>
       </div>
     </form>
   </dialog>
@@ -301,6 +308,6 @@
       fallbackBody: "<main class=\"site-page\">\n    <section class=\"starter-section\">\n      <div class=\"starter-card\">\n        <div class=\"starter-kicker\">CHINON · TAIWAN</div>\n        <h1>奇農 CHINON</h1>\n        <p>這是全新的網站起點。請開啟 /editor/，用新增工具建立文字、圖片、按鈕、區塊與頁面。</p>\n      </div>\n    </section>\n  </main>"
     };
   </script>
-  <script src="editor.js?v=89"></script>
+  <script src="editor.js?v=90"></script>
 </body>
 </html>

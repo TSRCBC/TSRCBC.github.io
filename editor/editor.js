@@ -76,7 +76,7 @@
   const CFG = window.CHINON_CONFIG;
   const $ = (s) => document.querySelector(s);
   const statusText = $('#statusText');
-  const RUNTIME_BUILD = 'V8.9';
+  const RUNTIME_BUILD = 'V9.0';
   const STORAGE_KEY = 'chinon-warm-v72';
   const INIT_KEY = 'chinon-warm-v72-init';
   const SNAPSHOT_ATTR = 'data-chinon-move-snapshot';
@@ -90,6 +90,19 @@
     { file:'info.html', name:'相關資訊' },
     { file:'contact.html', name:'聯繫我們' }
   ];
+
+  const STABLE_KEY_ATTR = 'data-chinon-key';
+  const STABLE_PAGE_ATTR = 'data-chinon-page';
+  const STABLE_DRAFT_VERSION = 90;
+  const BLOCKED_STYLE_PROPS = new Set([
+    'position','top','right','bottom','left','z-index','transform'
+  ]);
+  const TEXT_PATCH_TAGS = new Set([
+    'H1','H2','H3','H4','H5','H6','P','SPAN','STRONG','EM','B','I','SMALL',
+    'BUTTON','A','LI','FIGCAPTION','LABEL','TD','TH','DT','DD'
+  ]);
+  const baselineByFile = new Map();
+  let preparedLivePages = [];
 
   const editor = grapesjs.init({
     container: '#gjs',
@@ -764,7 +777,7 @@
   const DRAFT_DB_NAME = 'chinon-editor-drafts';
   const DRAFT_DB_VERSION = 1;
   const DRAFT_STORE = 'drafts';
-  const DRAFT_KEY = 'chinon-v85-project';
+  const DRAFT_KEY = 'chinon-v90-stable-project';
   const LEGACY_DRAFT_KEY = 'chinon-warm-v72';
 
   function openDraftDb() {
@@ -810,20 +823,41 @@
     }
   }
 
+  function baselineHashesObject() {
+    const out = {};
+    for (const [file, base] of baselineByFile) out[file] = base.sourceHash;
+    return out;
+  }
+
+  function sameBaselineHashes(saved) {
+    if (!saved || typeof saved !== 'object') return false;
+    const current = baselineHashesObject();
+    const files = SITE_PAGES.map(x => x.file);
+    return files.every(file => saved[file] && saved[file] === current[file]);
+  }
+
   async function saveDraft({silent=false}={}) {
-    const data = editor.getProjectData();
+    const data = {
+      version: STABLE_DRAFT_VERSION,
+      projectData: editor.getProjectData(),
+      baselineHashes: baselineHashesObject()
+    };
     await idbPutDraft(data);
     editor.clearDirtyCount();
     if (!silent) {
-      setStatus('草稿已儲存在這台電腦（IndexedDB）。尚未發布到正式網站。');
+      setStatus('V9 草稿已儲存在這台電腦。正式網站尚未變更。');
     }
     return true;
   }
 
   async function restoreDraft() {
     const draft = await idbGetDraft();
-    if (!draft) return false;
-    editor.loadProjectData(draft);
+    if (!draft || draft.version !== STABLE_DRAFT_VERSION || !draft.projectData) return false;
+    if (!sameBaselineHashes(draft.baselineHashes)) {
+      setStatus('偵測到正式網站已更新，舊草稿不自動載入；已改用最新正式網站。');
+      return false;
+    }
+    editor.loadProjectData(draft.projectData);
     editor.clearDirtyCount();
     return true;
   }
@@ -877,11 +911,19 @@
       throw new Error('備份內容格式不正確');
     }
 
-    editor.loadProjectData(projectData);
+    const wrapper = projectData;
+    if (wrapper.version !== STABLE_DRAFT_VERSION || !wrapper.projectData) {
+      throw new Error('這不是 V9 穩定模式備份。舊版整站備份為避免跑版，不允許直接匯入。');
+    }
+    if (!sameBaselineHashes(wrapper.baselineHashes)) {
+      throw new Error('這份草稿的正式網站基準與目前網站不同。請先重新載入正式網站。');
+    }
+
+    editor.loadProjectData(wrapper.projectData);
     await saveDraft({silent:true});
     refreshPages();
     editor.refresh();
-    setStatus('備份已匯入並儲存。');
+    setStatus('V9 草稿已匯入並儲存。');
   }
 
 
@@ -1380,7 +1422,7 @@
     scheduleDraftSave();
 
     if (count > 0) {
-      setStatus(`本頁已恢復 ${count} 個自由移動元件的位置。確認正常後再安全發布。`);
+      setStatus(`本頁已恢復 ${count} 個自由移動元件的位置。確認正常後再穩定發布。`);
     } else {
       setStatus('找不到可恢復的移動紀錄。若之前已重新載入正式網站，需從 GitHub History 還原上一版。');
     }
@@ -1667,6 +1709,48 @@
       });
       setStatus('背景圖片已套用。');
     });
+  }
+
+
+  // -------- V9 圖片 / 背景快速對齊 --------
+  function alignSelectedImage(mode) {
+    const c = selectedOrWarn();
+    if (!c) return;
+
+    const tag = String(c.get('tagName') || '').toLowerCase();
+    if (tag !== 'img') {
+      alert('請先點選一張圖片。');
+      return;
+    }
+
+    const patch = {
+      display:'block',
+      'object-position':'center center'
+    };
+
+    if (mode === 'left') {
+      patch['margin-left'] = '0';
+      patch['margin-right'] = 'auto';
+    } else if (mode === 'right') {
+      patch['margin-left'] = 'auto';
+      patch['margin-right'] = '0';
+    } else {
+      patch['margin-left'] = 'auto';
+      patch['margin-right'] = 'auto';
+    }
+
+    c.addStyle(patch);
+    setStatus(mode === 'center' ? '圖片已設定為置中。' : mode === 'left' ? '圖片已設定為靠左。' : '圖片已設定為靠右。');
+  }
+
+  function centerSelectedBackground() {
+    const c = selectedOrWarn();
+    if (!c) return;
+    c.addStyle({
+      'background-position':'center center',
+      'background-repeat':'no-repeat'
+    });
+    setStatus('背景圖片已設定為正中央對齊。');
   }
 
   // -------- links --------
@@ -2132,6 +2216,413 @@
     setStatus('頁面已刪除。');
   }
 
+
+  // -------- V9 fixed-template baseline / patch helpers --------
+  async function sha256Text(text) {
+    const bytes = new TextEncoder().encode(String(text || ''));
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2,'0')).join('');
+  }
+
+  function stableKeyPrefix(file) {
+    return String(file || 'page').replace(/\.html$/i,'').replace(/[^a-z0-9_-]/gi,'-');
+  }
+
+  function assignStableKeys(doc, file) {
+    const map = new Map();
+    if (!doc?.body) return map;
+    const prefix = stableKeyPrefix(file);
+
+    function walk(parent, path) {
+      const children = [...parent.children].filter(el => {
+        const tag = el.tagName;
+        return tag !== 'SCRIPT' && tag !== 'STYLE';
+      });
+
+      children.forEach((el, index) => {
+        const nextPath = [...path, index];
+        const key = `${prefix}:${nextPath.join('.')}`;
+        el.setAttribute(STABLE_KEY_ATTR, key);
+        el.setAttribute(STABLE_PAGE_ATTR, file);
+        map.set(key, el);
+        walk(el, nextPath);
+      });
+    }
+
+    walk(doc.body, []);
+    return map;
+  }
+
+  function stripEditorAttrs(root) {
+    if (!root) return;
+    if (root.removeAttribute) {
+      root.removeAttribute(STABLE_KEY_ATTR);
+      root.removeAttribute(STABLE_PAGE_ATTR);
+      root.removeAttribute(SNAPSHOT_ATTR);
+      root.removeAttribute('data-gjs-type');
+      root.removeAttribute('data-highlightable');
+    }
+    root.querySelectorAll?.(`[${STABLE_KEY_ATTR}], [${STABLE_PAGE_ATTR}], [${SNAPSHOT_ATTR}], [data-gjs-type], [data-highlightable]`)
+      .forEach(el => {
+        el.removeAttribute(STABLE_KEY_ATTR);
+        el.removeAttribute(STABLE_PAGE_ATTR);
+        el.removeAttribute(SNAPSHOT_ATTR);
+        el.removeAttribute('data-gjs-type');
+        el.removeAttribute('data-highlightable');
+      });
+  }
+
+  function cleanInnerHtml(el) {
+    const box = document.createElement('div');
+    box.innerHTML = el?.innerHTML || '';
+    stripEditorAttrs(box);
+    return box.innerHTML;
+  }
+
+  function styleObjectFromElement(el) {
+    const out = {};
+    if (!el?.style) return out;
+    for (let i = 0; i < el.style.length; i++) {
+      const prop = el.style[i];
+      out[prop] = el.style.getPropertyValue(prop).trim();
+    }
+    return out;
+  }
+
+  function relevantAttrs(el) {
+    const tag = String(el?.tagName || '').toUpperCase();
+    const names = tag === 'IMG'
+      ? ['src','alt','title','srcset','loading','width','height']
+      : tag === 'A'
+        ? ['href','target','rel','title']
+        : tag === 'IFRAME'
+          ? ['src','title','allow','allowfullscreen']
+          : tag === 'VIDEO'
+            ? ['src','poster','controls','autoplay','loop','muted']
+            : tag === 'SOURCE'
+              ? ['src','srcset','type','media']
+              : tag === 'BUTTON'
+                ? ['type','title']
+                : ['title'];
+
+    const out = {};
+    names.forEach(name => {
+      if (el?.hasAttribute?.(name)) out[name] = el.getAttribute(name);
+    });
+    return out;
+  }
+
+  function snapshotBaselineDocument(doc) {
+    const out = new Map();
+    doc.querySelectorAll(`[${STABLE_KEY_ATTR}]`).forEach(el => {
+      const key = el.getAttribute(STABLE_KEY_ATTR);
+      out.set(key, {
+        tag: el.tagName,
+        innerHTML: cleanInnerHtml(el),
+        attrs: relevantAttrs(el),
+        inlineStyle: styleObjectFromElement(el)
+      });
+    });
+    return out;
+  }
+
+  function componentMapForPage(page) {
+    const out = new Map();
+    const root = page?.getMainComponent?.();
+    if (!root) return out;
+    walkComponents(root, c => {
+      const attrs = c.getAttributes?.() || {};
+      const key = attrs[STABLE_KEY_ATTR];
+      if (key) out.set(key, c);
+    });
+    return out;
+  }
+
+  function htmlElementMapForPage(page) {
+    const root = page?.getMainComponent?.();
+    const html = root ? editor.getHtml({component:root}) : '';
+    const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+    const out = new Map();
+    doc.body.querySelectorAll(`[${STABLE_KEY_ATTR}]`).forEach(el => {
+      out.set(el.getAttribute(STABLE_KEY_ATTR), el);
+    });
+    return {doc, map:out};
+  }
+
+  function hasNestedTextTarget(el) {
+    return [...(el?.children || [])].some(child => {
+      if (TEXT_PATCH_TAGS.has(child.tagName)) return true;
+      return hasNestedTextTarget(child);
+    });
+  }
+
+  function isTextPatchTarget(el) {
+    if (!el || !TEXT_PATCH_TAGS.has(el.tagName)) return false;
+    if (el.querySelector?.('img,video,iframe,picture,figure,table,section,div,article,header,footer,nav,main')) return false;
+    return !hasNestedTextTarget(el);
+  }
+
+  function toKebab(prop) {
+    return String(prop || '').replace(/[A-Z]/g, m => '-' + m.toLowerCase());
+  }
+
+  function stylesEqual(a, b) {
+    const ka = Object.keys(a || {}).sort();
+    const kb = Object.keys(b || {}).sort();
+    if (ka.length !== kb.length) return false;
+    return ka.every((k, i) => k === kb[i] && String(a[k] || '') === String(b[k] || ''));
+  }
+
+  function attrsEqual(a, b) {
+    const ka = Object.keys(a || {}).sort();
+    const kb = Object.keys(b || {}).sort();
+    if (ka.length !== kb.length) return false;
+    return ka.every((k, i) => k === kb[i] && String(a[k] || '') === String(b[k] || ''));
+  }
+
+  async function prepareLiveBaseline() {
+    setStatus('正在讀取正式網站基準…');
+
+    let cssText = CFG.fallbackCss;
+    try {
+      cssText = await fetchText(`../styles.css?t=${Date.now()}`);
+    } catch {}
+    lastSiteCss = normalizeCssAssetPaths(cssText);
+
+    baselineByFile.clear();
+    preparedLivePages = [];
+
+    for (const item of SITE_PAGES) {
+      let source = '';
+      try {
+        source = await fetchText(`../${item.file}?t=${Date.now()}`);
+      } catch (error) {
+        if (item.file !== 'index.html') continue;
+        source = `<!doctype html><html><body>${CFG.fallbackBody}</body></html>`;
+      }
+
+      const sourceHash = await sha256Text(source);
+      const doc = new DOMParser().parseFromString(source, 'text/html');
+
+      // Canvas 不執行正式網站 JS；CSS 由 iframe 直接 link 正式 styles.css。
+      doc.querySelectorAll('script').forEach(el => el.remove());
+      doc.querySelectorAll('link[rel="stylesheet"]').forEach(el => el.remove());
+      normalizeHtmlAssetPaths(doc);
+      assignStableKeys(doc, item.file);
+
+      const body = doc.body?.innerHTML || '';
+      const snapshots = snapshotBaselineDocument(doc);
+
+      baselineByFile.set(item.file, {
+        sourceHash,
+        source,
+        snapshots
+      });
+
+      preparedLivePages.push({...item, body});
+    }
+
+    return preparedLivePages;
+  }
+
+  function applyPreparedLivePages(loaded) {
+    const pm = editor.Pages;
+    const existing = [...pm.getAll()];
+    const first = existing[0] || pm.add({name:'首頁',component:''});
+    existing.slice(1).forEach(p => pm.remove(p));
+
+    const firstData = loaded[0] || {file:'index.html',name:'首頁',body:CFG.fallbackBody};
+    first.set('name', firstData.name);
+    first.set('chinonFile', firstData.file);
+    pm.select(first);
+    editor.setComponents(firstData.body);
+
+    for (const item of loaded.slice(1)) {
+      pm.add({name:item.name, chinonFile:item.file, component:item.body});
+    }
+
+    editor.setStyle('');
+    pm.select(first);
+    ensureCanvasEnvironment();
+    requestAnimationFrame(ensureCanvasEnvironment);
+    refreshPages();
+  }
+
+  async function dataUrlToPublishedAsset(dataUrl, files, assetState, kind='image') {
+    const asset = await dataUrlToAsset(dataUrl, kind);
+    const name = `chinon-${assetState.version}-${assetState.counter++}.${asset.ext}`;
+    const path = `assets/uploads/${name}`;
+    files.set(path, {content:asset.base64, encoding:'base64'});
+    return path;
+  }
+
+  async function normalizePublishStyleValue(prop, value, files, assetState) {
+    const raw = String(value || '');
+    const match = raw.match(/url\(\s*(['"]?)(data:[^)'"]+)\1\s*\)/i);
+    if (!match) return raw;
+    const path = await dataUrlToPublishedAsset(match[2], files, assetState, 'background');
+    return raw.replace(match[2], path);
+  }
+
+  function removeStableAttrsFromDocument(doc) {
+    doc.querySelectorAll(`[${STABLE_KEY_ATTR}], [${STABLE_PAGE_ATTR}], [${SNAPSHOT_ATTR}]`).forEach(el => {
+      el.removeAttribute(STABLE_KEY_ATTR);
+      el.removeAttribute(STABLE_PAGE_ATTR);
+      el.removeAttribute(SNAPSHOT_ATTR);
+    });
+  }
+
+  async function buildStablePublishFiles() {
+    const files = new Map();
+    const assetState = {
+      version: Date.now().toString(36),
+      counter: 1
+    };
+
+    let changedPages = 0;
+    let changedElements = 0;
+    let skippedPosition = 0;
+
+    for (const item of SITE_PAGES) {
+      const base = baselineByFile.get(item.file);
+      if (!base) continue;
+
+      const page = editor.Pages.getAll().find(p => pageFile(p) === item.file);
+      if (!page) continue;
+
+      const currentSource = await fetchText(`../${item.file}?publishCheck=${Date.now()}`);
+      const currentHash = await sha256Text(currentSource);
+
+      if (currentHash !== base.sourceHash) {
+        throw new Error(
+          `${item.name}（${item.file}）在你最後一次「重新載入」之後已被更新。` +
+          `為避免覆蓋新版本，V9 已停止發布。請先按「重新載入」再確認修改。`
+        );
+      }
+
+      const liveDoc = new DOMParser().parseFromString(currentSource, 'text/html');
+      const liveMap = assignStableKeys(liveDoc, item.file);
+      const {map:currentHtmlMap} = htmlElementMapForPage(page);
+      const componentMap = componentMapForPage(page);
+
+      let pageChanged = false;
+
+      for (const [key, snap] of base.snapshots) {
+        const liveEl = liveMap.get(key);
+        const currentEl = currentHtmlMap.get(key);
+        const comp = componentMap.get(key);
+
+        if (!liveEl || !currentEl || !comp) {
+          throw new Error(
+            `${item.name} 的固定版面結構已被增刪或重排。V9 為避免跑版，已停止發布。` +
+            `請按「重新載入」恢復正式版面，再修改既有文字或圖片。`
+          );
+        }
+
+        if (currentEl.tagName !== snap.tag || liveEl.tagName !== snap.tag) {
+          throw new Error(`${item.name} 的元素結構已改變，穩定發布已停止。`);
+        }
+
+        let elementChanged = false;
+
+        // 文字：只更新最低層的文字元件，不替換父層版面。
+        if (isTextPatchTarget(currentEl)) {
+          const nowHtml = cleanInnerHtml(currentEl);
+          if (nowHtml !== snap.innerHTML) {
+            const holder = document.createElement('div');
+            holder.innerHTML = nowHtml;
+            stripEditorAttrs(holder);
+            liveEl.innerHTML = holder.innerHTML;
+            elementChanged = true;
+          }
+        }
+
+        // 連結 / 圖片等白名單屬性。
+        const nowAttrs = relevantAttrs(currentEl);
+        if (!attrsEqual(nowAttrs, snap.attrs)) {
+          const attrNames = new Set([...Object.keys(snap.attrs || {}), ...Object.keys(nowAttrs || {})]);
+
+          for (const name of attrNames) {
+            let value = nowAttrs[name];
+
+            if ((name === 'src' || name === 'poster') && value?.startsWith('data:')) {
+              value = await dataUrlToPublishedAsset(value, files, assetState, name === 'poster' ? 'poster' : 'image');
+            }
+
+            if (value === undefined || value === null || value === '') {
+              liveEl.removeAttribute(name);
+            } else {
+              liveEl.setAttribute(name, value);
+            }
+          }
+          elementChanged = true;
+        }
+
+        // 個別樣式：只寫到該元素 inline style，不改 styles.css。
+        const currentStyleRaw = comp.getStyle?.() || {};
+        const currentStyle = {};
+        Object.entries(currentStyleRaw).forEach(([prop, value]) => {
+          currentStyle[toKebab(prop)] = String(value ?? '').trim();
+        });
+
+        const baselineStyle = snap.inlineStyle || {};
+        const styleProps = new Set([...Object.keys(baselineStyle), ...Object.keys(currentStyle)]);
+
+        for (const prop of styleProps) {
+          const before = String(baselineStyle[prop] || '').trim();
+          const after = String(currentStyle[prop] || '').trim();
+          if (before === after) continue;
+
+          if (BLOCKED_STYLE_PROPS.has(prop)) {
+            skippedPosition += 1;
+            continue;
+          }
+
+          if (!after) {
+            liveEl.style.removeProperty(prop);
+          } else {
+            const safeValue = await normalizePublishStyleValue(prop, after, files, assetState);
+            liveEl.style.setProperty(prop, safeValue);
+          }
+          elementChanged = true;
+        }
+
+        if (elementChanged) {
+          changedElements += 1;
+          pageChanged = true;
+        }
+      }
+
+      if (pageChanged) {
+        // 若用了編輯器可選字型，確保正式頁也能載入字型；不碰原 styles.css。
+        if (!liveDoc.head.querySelector('link[data-chinon-fonts]')) {
+          const fontLink = liveDoc.createElement('link');
+          fontLink.rel = 'stylesheet';
+          fontLink.href = CFG.fontUrl;
+          fontLink.setAttribute('data-chinon-fonts','1');
+          liveDoc.head.appendChild(fontLink);
+        }
+
+        removeStableAttrsFromDocument(liveDoc);
+        files.set(item.file, {
+          content:'<!doctype html>\n' + liveDoc.documentElement.outerHTML,
+          encoding:'utf-8'
+        });
+        changedPages += 1;
+      }
+    }
+
+    return {
+      files,
+      summary:{
+        pages:changedPages,
+        elements:changedElements,
+        uploads:[...files.keys()].filter(path => path.startsWith('assets/uploads/')).length,
+        skippedPosition
+      }
+    };
+  }
+
   // -------- load/reload --------
   async function fetchText(url) {
     const r = await fetch(url, {cache:'no-store'});
@@ -2141,58 +2632,21 @@
 
   async function loadLive({ask=true}={}) {
     ensureCanvasBase();
-    if (ask && !confirm('重新載入會用 GitHub Pages 上的正式網站覆蓋目前瀏覽器內的編輯內容。繼續？')) return;
-    setStatus('正在載入完整網站…');
+    if (ask && !confirm(
+      '重新載入會用目前正式網站覆蓋 V9 草稿。\\n\\n' +
+      '如果你有尚未發布的修改，請先下載草稿備份。\\n\\n繼續？'
+    )) return;
 
-    let css = CFG.fallbackCss;
-    try {
-      css = await fetchText(`../styles.css?t=${Date.now()}`);
-    } catch {}
-    css = normalizeCssAssetPaths(css);
-    lastSiteCss = css;
+    const loaded = await prepareLiveBaseline();
+    applyPreparedLivePages(loaded);
 
-    const loaded = [];
-    for (const item of SITE_PAGES) {
-      try {
-        const source = await fetchText(`../${item.file}?t=${Date.now()}`);
-        const doc = new DOMParser().parseFromString(source,'text/html');
-        doc.querySelectorAll('script').forEach(el=>el.remove());
-        doc.querySelectorAll('link[rel="stylesheet"]').forEach(el=>el.remove());
-        normalizeHtmlAssetPaths(doc);
-        loaded.push({ ...item, body: doc.body?.innerHTML || '' });
-      } catch {
-        if (item.file === 'index.html') loaded.push({ ...item, body: CFG.fallbackBody });
-      }
-    }
-
-    const pm = editor.Pages;
-    const existing = [...pm.getAll()];
-    const first = existing[0] || pm.add({name:'首頁',component:''});
-    existing.slice(1).forEach(p=>pm.remove(p));
-
-    const firstData = loaded[0] || {file:'index.html',name:'首頁',body:CFG.fallbackBody};
-    first.set('name',firstData.name);
-    first.set('chinonFile',firstData.file);
-    pm.select(first);
-    editor.setComponents(firstData.body);
-
-    for (const item of loaded.slice(1)) {
-      pm.add({name:item.name,chinonFile:item.file,component:item.body});
-    }
-
-    // V8.9：正式 CSS 由 iframe 直接 <link> 載入，不再 editor.setStyle(css)。
-    // 這裡只清掉舊草稿殘留的 GrapesJS override CSS。
-    editor.setStyle('');
-    pm.select(first);
-    ensureCanvasEnvironment();
-    requestAnimationFrame(ensureCanvasEnvironment);
     try {
       await saveDraft({silent:true});
     } catch (error) {
       console.warn('重新載入後草稿儲存失敗', error);
     }
-    refreshPages();
-    setStatus('V8.9 正式網站樣式已載入：首頁、關於奇農、製茶堅持、GABA桑茶、秘魯瑪卡、檢測證書、相關資訊、聯繫我們。');
+
+    setStatus('V9.0 正式網站基準已載入：固定版面不會在發布時被整頁重寫。');
   }
 
   // -------- code --------
@@ -2223,7 +2677,7 @@
 
 
 
-  // -------- V8.8 安全發布：排除自由移動的臨時定位 --------
+  // -------- V8.8 穩定發布：排除自由移動的臨時定位 --------
   function allPageComponents() {
     const list = [];
     editor.Pages.getAll().forEach(page => {
@@ -2469,7 +2923,7 @@
 
   function openPublishDialog() {
     loadPublishSettings();
-    publishProgress('準備安全發布。所有頁面、樣式與新圖片會在同一個 GitHub Commit 一次更新。');
+    publishProgress('V9 穩定發布：只更新已修改元素；不重寫整頁、不覆蓋 styles.css / main.js。');
     $('#publishDialog').showModal();
   }
 
@@ -2616,7 +3070,7 @@
       return;
     }
 
-    if (!confirm(`確定安全發布到 ${owner}/${repo} 的 ${branch} 分支？\n\n自由移動造成的臨時定位不會送上正式網站。\n\n發布後 GitHub Pages 會重新部署正式網站。`)) {
+    if (!confirm(`確定穩定發布到 ${owner}/${repo} 的 ${branch} 分支？\n\nV9 只更新既有元素內容與個別樣式；不重寫整頁、不覆蓋 styles.css / main.js。\n\n發布後 GitHub Pages 會重新部署正式網站。`)) {
       return;
     }
 
@@ -2633,8 +3087,13 @@
       }
 
       publishProgress('2/6 正在整理網站檔案…');
-      const snapshot = await withSafePublishLayout(() => buildPublishFiles());
+      const snapshot = await buildStablePublishFiles();
       const files = snapshot.files;
+
+      if (!files.size) {
+        publishProgress('沒有偵測到需要發布的內容變更。正式網站未修改。', 'ok');
+        return;
+      }
 
       publishProgress('3/6 正在讀取 GitHub 最新版本…');
       const ref = await githubApi(
@@ -2649,7 +3108,7 @@
       );
       const baseTreeSha = parentCommit.tree.sha;
 
-      publishProgress(`4/6 正在同步 ${snapshot.summary.pages} 個頁面與 ${snapshot.summary.uploads} 個新圖片資源…`);
+      publishProgress(`4/6 正在發布 ${snapshot.summary.pages} 個有變更的頁面、${snapshot.summary.elements} 個元素與 ${snapshot.summary.uploads} 個新圖片資源…`);
       const entries = [];
 
       let done = 0;
@@ -2665,29 +3124,6 @@
         publishProgress(`4/6 正在上傳網站檔案… ${done}/${files.size}`);
       }
 
-      // 找出已刪除的「根目錄 HTML 頁面」，發布時一起從網站移除。
-      // 404.html 保留，不碰 editor/、assets/ 或其他設定檔。
-      const existingTree = await githubApi(
-        `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${baseTreeSha}?recursive=1`,
-        token
-      );
-
-      const currentPaths = new Set(files.keys());
-      for (const item of existingTree.tree || []) {
-        if (
-          item.type === 'blob' &&
-          /^[^/]+\.html$/i.test(item.path) &&
-          item.path.toLowerCase() !== '404.html' &&
-          !currentPaths.has(item.path)
-        ) {
-          entries.push({
-            path:item.path,
-            mode:'100644',
-            type:'blob',
-            sha:null
-          });
-        }
-      }
 
       publishProgress('5/6 正在建立 GitHub Commit…');
       const tree = await githubApi(
@@ -2732,16 +3168,16 @@
       );
 
       publishProgress(
-        `安全發布成功！
+        `穩定發布成功！
 頁面：${snapshot.summary.pages}
 新圖片資源：${snapshot.summary.uploads}
 Commit：${commit.sha.slice(0,7)}
 
-文字、字型、大小、粗細、間距、顏色、版面、CSS 與新圖片已在同一個 Commit 一次送出。
+已修改的文字、圖片、連結與個別樣式已送出；正式 styles.css / main.js 與其他版面結構保持不變。
 GitHub Pages 仍需要一點時間重新部署。`,
         'ok'
       );
-      setStatus('安全發布已送出 GitHub：保留正式網站基礎版面，並排除自由移動的臨時定位。');
+      setStatus('穩定發布已送出 GitHub：保留正式網站基礎版面，並排除自由移動的臨時定位。');
 
     } catch (error) {
       console.error(error);
@@ -2785,68 +3221,33 @@ ${bodyHtml}
     return 'jpg';
   }
 
-  async function exportZipUnsafe() {
-    setStatus('正在建立網站 ZIP…');
+  async function exportZip() {
+    setStatus('正在建立 V9 草稿備份 ZIP…');
     const zip = new JSZip();
-    const assetFolder = zip.folder('assets').folder('uploads');
-    let imgCounter = 1;
-    const assetVersion = Date.now().toString(36);
+    const wrapper = {
+      version: STABLE_DRAFT_VERSION,
+      projectData: editor.getProjectData(),
+      baselineHashes: baselineHashesObject()
+    };
+    zip.file('editor-backup.json', JSON.stringify(wrapper, null, 2));
+    zip.file('備份說明.txt',
+`這是 CHINON V9 穩定內容編輯器草稿備份。
 
-    for (const page of editor.Pages.getAll()) {
-      const root = page.getMainComponent();
-      let html = cleanSnapshotAttrs(editor.getHtml({component:root}));
-      const doc = new DOMParser().parseFromString(`<body>${html}</body>`,'text/html');
+它不包含整個正式網站，也不會用來覆蓋網站 HTML/CSS。
+用途：保留尚未發布的文字、圖片與個別樣式修改。
 
-      for (const img of [...doc.body.querySelectorAll('img[src^="data:"]')]) {
-        const src = img.getAttribute('src');
-        const m = src.match(/^data:([^;]+);base64,(.+)$/);
-        if (!m) continue;
-        const ext = extFromMime(m[1]);
-        const name = `image-${imgCounter++}.${ext}`;
-        assetFolder.file(name, m[2], {base64:true});
-        img.setAttribute('src', `assets/uploads/${name}`);
-      }
-
-      html = doc.body.innerHTML;
-      zip.file(pageFile(page), docForPage(page, html, assetVersion));
-    }
-
-    let css = editor.getCss() || '';
-    if (!css.includes('fonts.googleapis.com')) {
-      css = `@import url('${CFG.fontUrl}');\n\n` + css;
-    }
-    zip.file('styles.css', css);
-    zip.file('main.js', '// CHINON site script\n');
-    zip.file('editor-backup.json', JSON.stringify(editor.getProjectData(),null,2));
-    zip.file('上傳說明.txt',
-`把 ZIP 解壓後，將網站檔案上傳到 TSRCBC.github.io 根目錄並覆蓋舊檔。
-
-會包含：
-- index.html
-- 你新增的其他 .html 頁面
-- styles.css
-- main.js
-- assets/uploads/（你從編輯器上傳的圖片）
-- editor-backup.json（備份，不一定要公開）
-
-請保留 GitHub 上的 editor/ 資料夾，這樣你的編輯器網址才會繼續存在。
-`);
+匯入前，正式網站必須仍是同一個基準版本；否則 V9 會拒絕匯入，以避免把舊版面帶回網站。`);
 
     const blob = await zip.generateAsync({type:'blob'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `chinon-site-${new Date().toISOString().slice(0,10)}.zip`;
+    a.download = `chinon-v9-draft-${new Date().toISOString().slice(0,10)}.zip`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    setStatus('網站 ZIP 已下載。');
-  }
-
-
-  async function exportZip() {
-    return withSafePublishLayout(() => exportZipUnsafe());
+    setStatus('V9 草稿備份 ZIP 已下載。');
   }
 
   // -------- wire UI --------
@@ -2870,6 +3271,11 @@ ${bodyHtml}
 
   $('#btnBackgroundImage').addEventListener('click',()=>$('#backgroundImagePicker').click());
   $('#backgroundImagePicker').addEventListener('change',(e)=>{ setBackgroundImageFile(e.target.files?.[0]); e.target.value=''; });
+
+  $('#btnImgLeft').addEventListener('click',()=>alignSelectedImage('left'));
+  $('#btnImgCenter').addEventListener('click',()=>alignSelectedImage('center'));
+  $('#btnImgRight').addEventListener('click',()=>alignSelectedImage('right'));
+  $('#btnBgCenter').addEventListener('click',centerSelectedBackground);
 
   $('#btnPixelMove').addEventListener('click',armMove);
   $('#btnResetMove').addEventListener('click',restoreMove);
@@ -2996,7 +3402,7 @@ ${bodyHtml}
     }
 
     const name = c.getName?.() || c.get('tagName') || '元件';
-    setStatus(`已選取：${name}。非文字元件可用上方「文字縮放」按鈕啟用一般尺寸縮放。`);
+    setStatus(`已選取：${name}。V9 只發布此元素本身的安全修改，不會重寫整頁版面。`);
   });
 
   editor.on('load',async()=>{
@@ -3004,34 +3410,37 @@ ${bodyHtml}
     enhanceColorPickers();
     ensureCanvasBase();
 
-    let loadedDraft = false;
+    let loaded = [];
+    try {
+      loaded = await prepareLiveBaseline();
+    } catch (error) {
+      console.error(error);
+      setStatus(`讀取正式網站失敗：${error.message}`);
+    }
 
+    let loadedDraft = false;
     try {
       loadedDraft = await restoreDraft();
     } catch (error) {
-      console.warn('IndexedDB 草稿讀取失敗', error);
+      console.warn('V9 草稿讀取失敗', error);
     }
 
     if (!loadedDraft) {
-      try {
-        loadedDraft = await migrateLegacyDraftIfAvailable();
-      } catch (error) {
-        console.warn('舊草稿搬移失敗', error);
-      }
+      applyPreparedLivePages(loaded);
+      try { await saveDraft({silent:true}); } catch {}
+    } else {
+      requestAnimationFrame(ensureCanvasEnvironment);
+      setStatus('V9.0 已載入相同正式網站基準上的本機草稿。');
     }
-
-    if (!loadedDraft) {
-      await loadLive({ask:false});
-    }
-
-    // V8.6 不再使用舊版 localStorage 草稿標記。
-    try { localStorage.removeItem(INIT_KEY); } catch {}
 
     refreshPages();
-
-    // 自動草稿改存 IndexedDB。
     editor.on('update', scheduleDraftSave);
 
-    setStatus(`${RUNTIME_BUILD} 已載入。Canvas 直接使用正式網站 styles.css，預覽應與官網一致。`);
+    // 穩定模式：結構性按鈕維持停用，避免整頁重寫。
+    document.querySelectorAll('.stable-disabled').forEach(btn => btn.disabled = true);
+
+    if (!loadedDraft) {
+      setStatus('V9.0 已載入正式網站。固定版面模式已啟用；可安全修改文字、圖片、連結與個別樣式。');
+    }
   });
 })();

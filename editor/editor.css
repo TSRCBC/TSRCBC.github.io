@@ -435,3 +435,25 @@ body.auth-locked > *:not(#loginGate){
 #statusText{
   letter-spacing:.01em;
 }
+
+
+/* V9.0 fixed-template stable mode */
+.stable-disabled{
+  opacity:.38 !important;
+  cursor:not-allowed !important;
+  filter:grayscale(.5);
+}
+.stable-publish-note{
+  border-color:#3f8062 !important;
+  background:#10271d !important;
+}
+#btnImgCenter{
+  border-color:#4a9b73;
+  background:#173629;
+}
+#btnImgCenter:hover:not(:disabled),
+#btnImgLeft:hover:not(:disabled),
+#btnImgRight:hover:not(:disabled),
+#btnBgCenter:hover:not(:disabled){
+  filter:brightness(1.12);
+}
