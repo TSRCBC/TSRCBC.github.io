@@ -98,3 +98,9 @@ dialog::backdrop{background:rgba(0,0,0,.68)}
 #btnCheckPreview{
   border-color:#6c7e91;
 }
+
+.self-check-results{padding:14px 16px;max-height:55vh;overflow:auto;display:grid;gap:7px}
+.self-row{display:flex;justify-content:space-between;gap:14px;padding:9px 11px;border:1px solid #39414e;border-radius:8px;background:#121820}
+.self-row.ok{border-color:#285f49}.self-row.bad{border-color:#8a3d45}
+.self-row small{color:#99a7b5;text-align:right}.self-summary{margin-top:6px;padding:10px;border-radius:8px;font-weight:800}
+.self-summary.ok{background:#123525;color:#9aebc1}.self-summary.bad{background:#3c1e22;color:#ffadb4}

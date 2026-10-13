@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow,noarchive">
-  <title>CHINON 視覺網站編輯器 V10.2</title>
-  <link rel="stylesheet" href="editor.css?v=102">
+  <title>CHINON 視覺網站編輯器</title>
+  <link rel="stylesheet" href="editor.css?v=1041">
 </head>
 <body class="auth-locked">
   <div id="loginGate" class="login-gate">
@@ -15,7 +15,7 @@
       <div class="login-logo">C</div>
       <div class="login-eyebrow">CHINON PRIVATE CONSOLE</div>
       <h1>網站管理後台</h1>
-      <p>驗證管理者後進入 V10.2 視覺編輯器</p>
+      <p>驗證管理者後進入視覺編輯器</p>
       <form id="loginForm" autocomplete="off" novalidate>
         <label>帳號<input id="loginUser" type="text" value="luke" autocomplete="off" autocapitalize="none" spellcheck="false" inputmode="text" placeholder="管理帳號"><span class="login-hint">管理帳號已預填為 luke，可直接輸入密碼。</span></label>
         <label>密碼
@@ -32,7 +32,7 @@
 
   <header class="topbar">
     <div class="brand">
-      <strong>CHINON 編輯器 V10.0</strong>
+      <strong>CHINON 編輯器 <span id="buildLabel">載入中…</span></strong>
       <span>同源畫布・先測試版・確認後再套正式站</span>
     </div>
 
@@ -62,6 +62,7 @@
       <button id="btnUndo">↶ Undo</button>
       <button id="btnRedo">↷ Redo</button>
       <button id="btnSave">儲存草稿</button>
+      <button id="btnSelfCheck">系統檢查</button>
       <button id="btnReload">重新載入官網</button>
     </div>
 
@@ -80,8 +81,8 @@
   </header>
 
   <div class="statusbar">
-    <span id="status">V10.2 啟動中…</span>
-    <span class="status-note">雙擊文字直接改；圖片／文字右下角可拖曳縮放。正式站只有在「③ 套用正式網站」後才會變更。</span>
+    <span id="status">編輯器啟動中…</span>
+    <span class="status-note">雙擊文字直接改；修改後會自動儲存草稿。重新整理後仍會保留。正式站只有在「③ 套用正式網站」後才會變更。</span>
   </div>
 
   <main class="workspace">
@@ -248,6 +249,14 @@
   <input id="replaceImageInput" type="file" accept="image/*" hidden>
   <input id="backgroundInput" type="file" accept="image/*" hidden>
 
+  <dialog id="selfCheckDialog">
+    <div class="dialog-card">
+      <div class="dialog-head"><strong>V10 系統檢查</strong><button id="btnCloseSelfCheck" type="button">✕</button></div>
+      <div id="selfCheckResults" class="self-check-results">尚未執行。</div>
+      <div class="dialog-actions"><button id="btnRunSelfCheck" type="button" class="primary">重新檢查</button></div>
+    </div>
+  </dialog>
+
   <dialog id="publishDialog">
     <form method="dialog" class="dialog-card">
       <div class="dialog-head"><strong id="publishTitle">發布設定</strong><button value="cancel">✕</button></div>
@@ -267,6 +276,6 @@
     </form>
   </dialog>
 
-  <script src="editor.js?v=102"></script>
+  <script src="editor.js?v=1041"></script>
 </body>
 </html>

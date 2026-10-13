@@ -1,6 +1,9 @@
 (() => {
 'use strict';
 
+const BUILD = 'V10.4 RC1';
+const FONT_URL = 'https://fonts.googleapis.com/css2?family=Iansui&family=Klee+One:wght@400;600&family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&family=Noto+Serif+TC:wght@400;500;600;700;800;900&family=Yuji+Syuku&family=Zen+Kurenaido&display=swap';
+
 /* ---------- login ---------- */
 const LOGIN_USERNAME = 'luke';
 const LOGIN_PASSWORD_SHA256 = '23f26c1f19c8ef676e496b4021c12831ecbd11c4ba400b516dda4badf653d71c';
@@ -72,6 +75,9 @@ const SITE_FILES = new Set(SITE_PAGES.map(x=>x.file));
 const iframe = $('#siteFrame');
 const frameBox = $('#canvasFrame');
 const statusEl = $('#status');
+const buildLabel = $('#buildLabel');
+if(buildLabel) buildLabel.textContent=BUILD;
+document.title=`CHINON 視覺網站編輯器 ${BUILD}`;
 const DRAFT_DB = 'chinon-v10-editor';
 const DRAFT_STORE = 'state';
 const DRAFT_KEY = 'draft-v10';
@@ -80,7 +86,9 @@ const PUBLISH_SETTINGS_KEY = 'chinon-v10-publish-settings';
 const TOKEN_SESSION_KEY = 'chinon-v10-token';
 const TOKEN_LOCAL_KEY = 'chinon-v10-token-local';
 
-let currentFile = 'index.html';
+let currentFile = null;
+let hasLoadedPage = false;
+let draftSaveTimer = null;
 let currentBaseHash = '';
 let currentLiveSource = '';
 let selected = null;
@@ -100,6 +108,8 @@ const SELECT_ATTR = 'data-chinon-v10-selected';
 const ADDED_ATTR = 'data-chinon-v10-added';
 const FLOAT_ATTR = 'data-chinon-v10-float';
 const PLACEHOLDER_ATTR = 'data-chinon-v10-placeholder';
+const FLOAT_STYLE_BACKUP_ATTR = 'data-chinon-v10-float-style-backup';
+const FLOAT_PARENT_POS_BACKUP_ATTR = 'data-chinon-v10-parent-position-backup';
 const INTERNAL_ATTRS = [SELECT_ATTR,'data-chinon-v10-editing'];
 
 function setStatus(msg){ statusEl.textContent=msg; }
@@ -135,11 +145,28 @@ async function dbPut(key,value){
     });
   }finally{ db.close(); }
 }
-async function saveDraftState(){
-  captureCurrentPage();
-  const payload={pages:[...pageDrafts.entries()],savedAt:Date.now()};
+async function persistDraftMap({silent=false}={}){
+  const savedAt=Date.now();
+  const payload={version:1041,pages:[...pageDrafts.entries()],savedAt};
   await dbPut(DRAFT_KEY,payload);
-  setStatus('草稿已儲存在這台電腦。正式網站沒有變更。');
+  if(!silent){
+    const t=new Date(savedAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    setStatus(`草稿已儲存 ${t}。重新整理後會保留；正式網站沒有變更。`);
+  }
+  return true;
+}
+async function saveDraftState({silent=false,capture=true}={}){
+  if(capture && hasLoadedPage) captureCurrentPage();
+  return persistDraftMap({silent});
+}
+function scheduleDraftSave(){
+  clearTimeout(draftSaveTimer);
+  draftSaveTimer=setTimeout(()=>{
+    saveDraftState({silent:true}).catch(err=>{
+      console.error('自動儲存失敗',err);
+      setStatus(`自動儲存失敗：${err.message}`);
+    });
+  },500);
 }
 async function restoreDraftState(){
   const saved=await dbGet(DRAFT_KEY);
@@ -190,7 +217,8 @@ function markDirty(){
   if(draft) draft.dirty=true;
   $('#btnPromote').disabled=true;
   latestPreviewCommit='';
-  setStatus('有尚未發布的修改。先「① 發布測試版」查看實際結果。');
+  setStatus('有尚未發布的修改。草稿會自動儲存；先「① 發布測試版」查看實際結果。');
+  scheduleDraftSave();
 }
 function pushUndo(){
   const doc=iframe.contentDocument;
@@ -217,11 +245,40 @@ function redo(){
   markDirty();
 }
 
+function navigateFrame({src=null,srcdoc=null}){
+  return new Promise((resolve,reject)=>{
+    let done=false;
+    const timer=setTimeout(()=>{
+      if(done) return;
+      done=true;
+      reject(new Error('畫布載入超過 15 秒，請重新整理後再試。'));
+    },15000);
+    const finish=()=>{
+      if(done) return;
+      done=true;
+      clearTimeout(timer);
+      resolve();
+    };
+    iframe.addEventListener('load',finish,{once:true});
+    if(srcdoc!==null){
+      iframe.removeAttribute('src');
+      iframe.srcdoc=srcdoc;
+    }else{
+      iframe.removeAttribute('srcdoc');
+      iframe.src=src;
+    }
+  });
+}
+
 /* ---------- load pages ---------- */
-async function loadPage(file,{forceLive=false}={}){
-  if(currentFile && iframe.contentDocument?.documentElement) captureCurrentPage();
+async function loadPage(file,{forceLive=false,skipCapture=false}={}){
+  if(!skipCapture && currentFile && hasLoadedPage && iframe.contentDocument?.documentElement){
+    captureCurrentPage();
+    await persistDraftMap({silent:true});
+  }
 
   currentFile=file;
+  hasLoadedPage=false;
   $('#pageSelect').value=file;
   selected=null;
   $('#selectedLabel').textContent='尚未選取';
@@ -233,22 +290,25 @@ async function loadPage(file,{forceLive=false}={}){
   currentBaseHash=await hashText(live);
 
   const draft=pageDrafts.get(file);
-  if(!forceLive && draft?.html && draft.baseHash===currentBaseHash){
+  if(!forceLive && draft?.html && draft.baseHash===currentBaseHash && /<body[\s>]/i.test(draft.html) && draft.html.length>300){
     currentDirty=!!draft.dirty;
-    iframe.srcdoc=toEditorSrcdoc(draft.html);
+    await navigateFrame({srcdoc:toEditorSrcdoc(draft.html)});
   }else{
-    if(draft && draft.baseHash!==currentBaseHash) pageDrafts.delete(file);
+    if(draft && draft.baseHash!==currentBaseHash){
+      pageDrafts.delete(file);
+      await persistDraftMap({silent:true});
+    }
     currentDirty=false;
-    iframe.removeAttribute('srcdoc');
-    iframe.src=`../${file}?editorV10=${Date.now()}`;
+    await navigateFrame({src:`../${file}?editorV10=${Date.now()}`});
   }
 }
 async function reloadCurrentFromLive(){
   if(!confirm('這會捨棄目前這一頁尚未發布的草稿，重新抓正式網站。確定？')) return;
   pageDrafts.delete(currentFile);
+  await persistDraftMap({silent:true});
   currentDirty=false;
-  await loadPage(currentFile,{forceLive:true});
-  await saveDraftState();
+  await loadPage(currentFile,{forceLive:true,skipCapture:true});
+  setStatus('已重新載入目前正式網站，這一頁的舊草稿已清除。');
 }
 
 /* ---------- iframe editor ---------- */
@@ -360,9 +420,21 @@ function rgbToHex(rgb){
   if(!m||m.length<3) return '#222222';
   return '#'+m.slice(0,3).map(x=>(+x).toString(16).padStart(2,'0')).join('');
 }
+function ensureFontLink(doc=iframe.contentDocument){
+  if(!doc?.head) return;
+  let link=doc.head.querySelector('link[data-chinon-fonts]');
+  if(!link){
+    link=doc.createElement('link');
+    link.rel='stylesheet';
+    link.href=FONT_URL;
+    link.setAttribute('data-chinon-fonts','1');
+    doc.head.appendChild(link);
+  }
+}
 function applyStyle(prop,value){
   if(!selected || value==='') return;
   pushUndo();
+  if(prop==='fontFamily') ensureFontLink();
   selected.style[prop]=value;
   markDirty();
   updateHandle();
@@ -410,6 +482,26 @@ function fileToDataUrl(file){
     const r=new FileReader(); r.onload=()=>resolve(r.result); r.onerror=reject; r.readAsDataURL(file);
   });
 }
+async function prepareImageDataUrl(file){
+  if(!file) return '';
+  if(!/^image\//i.test(file.type||'')) throw new Error('請選擇圖片檔案。');
+  if(file.size<=2*1024*1024) return fileToDataUrl(file);
+  try{
+    const bitmap=await createImageBitmap(file);
+    const maxSide=2200;
+    const scale=Math.min(1,maxSide/Math.max(bitmap.width,bitmap.height));
+    const w=Math.max(1,Math.round(bitmap.width*scale));
+    const h=Math.max(1,Math.round(bitmap.height*scale));
+    const canvas=document.createElement('canvas'); canvas.width=w; canvas.height=h;
+    const ctx=canvas.getContext('2d',{alpha:true});
+    ctx.drawImage(bitmap,0,0,w,h); bitmap.close?.();
+    const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('圖片壓縮失敗')),'image/webp',0.9));
+    return fileToDataUrl(new File([blob],'optimized.webp',{type:'image/webp'}));
+  }catch(err){
+    console.warn('圖片最佳化失敗，改用原檔',err);
+    return fileToDataUrl(file);
+  }
+}
 function findInsertContainer(){
   if(!selected) return iframe.contentDocument.body;
   return selected.closest('section,header,footer,main,article,.container,div') || selected.parentElement || iframe.contentDocument.body;
@@ -417,7 +509,7 @@ function findInsertContainer(){
 async function addImage(file){
   if(!file) return;
   pushUndo();
-  const src=await fileToDataUrl(file);
+  const src=await prepareImageDataUrl(file);
   const doc=iframe.contentDocument;
   const img=doc.createElement('img');
   img.src=src;
@@ -432,11 +524,11 @@ async function addImage(file){
 }
 async function replaceImage(file){
   if(!file || !selected || selected.tagName!=='IMG'){ alert('請先點選要更換的圖片。'); return; }
-  pushUndo(); selected.src=await fileToDataUrl(file); markDirty(); updateHandle();
+  pushUndo(); selected.src=await prepareImageDataUrl(file); markDirty(); updateHandle();
 }
 async function setBackground(file){
   if(!file || !selected){ alert('請先點選要設定背景的區塊。'); return; }
-  pushUndo(); const src=await fileToDataUrl(file);
+  pushUndo(); const src=await prepareImageDataUrl(file);
   selected.style.backgroundImage=`url("${src}")`;
   if(!selected.style.backgroundPosition) selected.style.backgroundPosition='center center';
   if(!selected.style.backgroundSize) selected.style.backgroundSize='cover';
@@ -469,7 +561,8 @@ function floatSelected(){
   ph.style.display=iframe.contentWindow.getComputedStyle(selected).display==='inline'?'inline-block':'block';
   ph.style.width=`${r.width}px`; ph.style.height=`${r.height}px`; ph.style.visibility='hidden';
   selected.insertAdjacentElement('beforebegin',ph);
-
+  selected.setAttribute(FLOAT_STYLE_BACKUP_ATTR,encodeURIComponent(selected.getAttribute('style')||''));
+  parent.setAttribute(FLOAT_PARENT_POS_BACKUP_ATTR,encodeURIComponent(parent.style.position||''));
   if(iframe.contentWindow.getComputedStyle(parent).position==='static') parent.style.position='relative';
   selected.setAttribute(FLOAT_ATTR,id);
   selected.style.position='absolute';
@@ -486,9 +579,18 @@ function unfloatSelected(){
   pushUndo();
   const id=selected.getAttribute(FLOAT_ATTR);
   const doc=iframe.contentDocument;
+  const parent=selected.parentElement;
   doc.querySelector(`[${PLACEHOLDER_ATTR}="${CSS.escape(id)}"]`)?.remove();
+  const backup=decodeURIComponent(selected.getAttribute(FLOAT_STYLE_BACKUP_ATTR)||'');
+  if(backup) selected.setAttribute('style',backup); else selected.removeAttribute('style');
   selected.removeAttribute(FLOAT_ATTR);
-  ['position','left','top','zIndex','margin','height'].forEach(p=>selected.style[p]='');
+  selected.removeAttribute(FLOAT_STYLE_BACKUP_ATTR);
+  if(parent?.hasAttribute(FLOAT_PARENT_POS_BACKUP_ATTR)){
+    const p=decodeURIComponent(parent.getAttribute(FLOAT_PARENT_POS_BACKUP_ATTR)||'');
+    parent.style.position=p;
+    if(!parent.getAttribute('style')?.trim()) parent.removeAttribute('style');
+    parent.removeAttribute(FLOAT_PARENT_POS_BACKUP_ATTR);
+  }
   markDirty(); updateHandle();
 }
 function startFloatDrag(e,el){
@@ -526,8 +628,13 @@ function applyLink(){
   const url=$('#linkUrl').value.trim();
   if(!url) return;
   pushUndo();
-  if(selected.tagName==='A') selected.setAttribute('href',url);
-  else{
+  const existing=selected.closest?.('a');
+  if(existing){
+    existing.setAttribute('href',url);
+    selected=existing;
+  }else if(selected.tagName==='A'){
+    selected.setAttribute('href',url);
+  }else{
     const doc=iframe.contentDocument;
     const a=doc.createElement('a'); a.href=url;
     selected.replaceWith(a); a.appendChild(selected); selected=a;
@@ -602,6 +709,55 @@ function rewritePreviewPaths(doc){
     el.setAttribute('style',st.replace(/url\((['"]?)(assets\/)/g,'url($1/$2'));
   });
 }
+async function currentDraftSignature(){
+  if(hasLoadedPage) captureCurrentPage();
+  const parts=[];
+  for(const page of SITE_PAGES){
+    const d=pageDrafts.get(page.file);
+    parts.push(d?.dirty ? `${page.file}|${d.baseHash}|${d.html}` : `${page.file}|CLEAN`);
+  }
+  return hashText(parts.join('\n---PAGE---\n'));
+}
+async function runCoreChecks(){
+  const results=[];
+  const add=(name,ok,detail='')=>results.push({name,ok,detail});
+  try{
+    const key='__chinon_selftest__'; const value={t:Date.now(),build:BUILD};
+    await dbPut(key,value); const back=await dbGet(key);
+    add('草稿資料庫 IndexedDB',back?.t===value.t,'可寫入並讀回');
+  }catch(err){ add('草稿資料庫 IndexedDB',false,err.message); }
+  try{
+    const res=await fetch(`../styles.css?selfcheck=${Date.now()}`,{cache:'no-store'});
+    add('正式 styles.css',res.ok,res.ok?'讀取正常':`HTTP ${res.status}`);
+  }catch(err){ add('正式 styles.css',false,err.message); }
+  for(const page of SITE_PAGES){
+    try{ const res=await fetch(`../${page.file}?selfcheck=${Date.now()}`,{cache:'no-store'}); add(`${page.name}頁面`,res.ok,res.ok?'讀取正常':`HTTP ${res.status}`); }
+    catch(err){ add(`${page.name}頁面`,false,err.message); }
+  }
+  try{
+    const doc=iframe.contentDocument;
+    const ok=!!doc?.body && doc.body.innerHTML.trim().length>50;
+    add('目前編輯畫布',ok,ok?'DOM 可存取':'畫布內容為空或無法存取');
+  }catch(err){ add('目前編輯畫布',false,err.message); }
+  add('版本標示',buildLabel?.textContent===BUILD,buildLabel?.textContent||'找不到版本標示');
+  return {ok:results.every(x=>x.ok),results};
+}
+async function preflightBeforePreview(){
+  await saveDraftState({silent:true});
+  const checks=await runCoreChecks();
+  if(!checks.ok){
+    const failed=checks.results.filter(x=>!x.ok).map(x=>`${x.name}：${x.detail}`).join('；');
+    throw new Error(`發布前檢查未通過：${failed}`);
+  }
+  for(const page of SITE_PAGES){
+    const d=pageDrafts.get(page.file);
+    if(!d?.dirty) continue;
+    const fresh=await fetchLive(page.file);
+    const freshHash=await hashText(fresh);
+    if(freshHash!==d.baseHash) throw new Error(`${page.name}正式頁面已在背景更新。請先重新載入該頁再發布。`);
+  }
+  return checks;
+}
 async function buildPreviewSnapshot(){
   captureCurrentPage();
   const previewFiles=new Map();
@@ -645,9 +801,12 @@ async function buildPreviewSnapshot(){
   }
   for(const [path,file] of assetFiles) previewFiles.set(path,file);
 
+  const draftSignature=await currentDraftSignature();
   return {
     createdAt:Date.now(),
     previewId:assetState.id,
+    draftSignature,
+    viewedAt:null,
     dirtyFiles,
     previewFiles:[...previewFiles.entries()],
     productionFiles:[...productionFiles.entries()],
@@ -682,6 +841,10 @@ async function waitForPreviewReady(previewId,{timeoutMs=120000,intervalMs=3000}=
   }
   return false;
 }
+async function snapshotStillMatchesDraft(snap){
+  if(!snap?.draftSignature) return false;
+  return (await currentDraftSignature())===snap.draftSignature;
+}
 async function verifyPreviewNow(){
   if(!latestPreviewId){
     const snap=await dbGet(PREVIEW_SNAPSHOT_KEY);
@@ -697,9 +860,8 @@ async function verifyPreviewNow(){
   $('#btnCheckPreview').disabled=false;
   if(ok){
     $('#btnOpenPreview').disabled=false;
-    const snap=await dbGet(PREVIEW_SNAPSHOT_KEY);
-    $('#btnPromote').disabled=!(snap?.dirtyFiles?.length);
-    setStatus('測試版部署完成，可以開啟檢查。正式網站尚未變更。');
+    $('#btnPromote').disabled=true;
+    setStatus('測試版部署完成。請先按「② 開啟測試版」實際檢查，之後才會開放正式套用。');
   }else{
     $('#btnOpenPreview').disabled=true;
     $('#btnPromote').disabled=true;
@@ -783,14 +945,21 @@ async function commitFiles({owner,repo,branch,token,files,message,expectedHead=n
 }
 
 let publishMode='preview';
-function openPublish(mode){
+async function openPublish(mode){
+  if(mode==='promote'){
+    const snap=await dbGet(PREVIEW_SNAPSHOT_KEY);
+    if(!snap?.previewCommitSha){ alert('請先發布測試版。'); return; }
+    if(!snap.viewedAt){ alert('請先按「② 開啟測試版」實際檢查，再套用正式網站。'); return; }
+    if(!(await snapshotStillMatchesDraft(snap))){ alert('你在測試版產生後又修改了草稿。請重新發布測試版，確認後再套用。'); $('#btnPromote').disabled=true; return; }
+    if(!(await checkPreviewReady(snap.previewId))){ alert('測試版尚未確認部署完成，不能套用正式網站。'); $('#btnPromote').disabled=true; return; }
+  }
   publishMode=mode; loadPublishSettings();
   $('#publishTitle').textContent=mode==='preview'?'發布測試版':'套用正式網站';
   $('#publishIntro').textContent=mode==='preview'
-    ? '這一步只更新 /preview/ 測試站，不會改正式首頁。'
-    : '這一步只會使用你剛剛已確認的測試版快照，套用到正式網站。';
+    ? '這一步只更新 /preview/ 測試站，不會改正式首頁。發布前會先自動做完整檢查。'
+    : '這一步只會使用你剛剛已開啟確認的測試版快照，套用到正式網站。';
   $('#btnDoPublish').textContent=mode==='preview'?'發布測試版':'套用正式網站';
-  publishProgress(mode==='preview'?'正式網站不會在這一步變更。':'請先確認測試版看起來完全正確。');
+  publishProgress(mode==='preview'?'正式網站不會在這一步變更。':'系統會再次核對測試版、草稿與 GitHub Head。');
   $('#publishDialog').showModal();
 }
 async function doPublish(){
@@ -800,7 +969,9 @@ async function doPublish(){
   btn.disabled=true;
   try{
     if(publishMode==='preview'){
-      publishProgress('正在建立與目前畫面相同的測試快照…');
+      publishProgress('正在執行發布前檢查…');
+      await preflightBeforePreview();
+      publishProgress('檢查通過。正在建立與目前畫面相同的測試快照…');
       const snap=await buildPreviewSnapshot();
       const files=snap.previewFiles;
       const sha=await commitFiles({
@@ -819,7 +990,7 @@ async function doPublish(){
       const ready=await waitForPreviewReady(snap.previewId);
       if(ready){
         $('#btnOpenPreview').disabled=false;
-        $('#btnPromote').disabled=snap.dirtyFiles.length===0;
+        $('#btnPromote').disabled=true;
         publishProgress(`測試版部署完成！\n變更頁面：${snap.dirtyFiles.join('、')||'無'}\nCommit：${sha.slice(0,7)}\n\n現在可以按「② 開啟測試版」檢查。`,'ok');
         setStatus('測試版已部署完成。正式網站尚未變更。');
       }else{
@@ -829,6 +1000,9 @@ async function doPublish(){
     }else{
       const snap=await dbGet(PREVIEW_SNAPSHOT_KEY);
       if(!snap?.previewCommitSha) throw new Error('找不到可套用的測試版。請先重新發布測試版。');
+      if(!snap.viewedAt) throw new Error('你還沒有開啟測試版確認。請先完成第 ② 步。');
+      if(!(await snapshotStillMatchesDraft(snap))) throw new Error('草稿已在測試版之後修改。請重新發布測試版。');
+      if(!(await checkPreviewReady(snap.previewId))) throw new Error('目前無法確認測試版已部署完成。正式發布已停止。');
       if(!confirm('你已經實際打開測試版，確認桌機／平板／手機都正常嗎？\n\n確定後才會修改正式網站。')) return;
       const files=snap.productionFiles||[];
       if(!files.length){ throw new Error('測試版沒有偵測到正式內容變更。'); }
@@ -846,18 +1020,48 @@ async function doPublish(){
   }finally{ btn.disabled=false; }
 }
 
+function renderSelfCheck(result){
+  const box=$('#selfCheckResults');
+  box.innerHTML=result.results.map(r=>`<div class="self-row ${r.ok?'ok':'bad'}"><span>${r.ok?'✓':'✕'} ${r.name}</span><small>${r.detail||''}</small></div>`).join('') +
+    `<div class="self-summary ${result.ok?'ok':'bad'}">${result.ok?'全部通過':'有項目未通過，請不要發布'}</div>`;
+}
+async function runSelfCheckUi(){
+  $('#selfCheckResults').textContent='檢查中…';
+  $('#selfCheckDialog').showModal();
+  try{ renderSelfCheck(await runCoreChecks()); }
+  catch(err){ $('#selfCheckResults').textContent=`檢查失敗：${err.message}`; }
+}
+
 /* ---------- events ---------- */
 iframe.addEventListener('load',()=>{
   const doc=iframe.contentDocument;
   try{
+    hasLoadedPage=true;
     injectEditorUi(doc);
     selected=null; $('#selectedLabel').textContent='尚未選取';
-    setStatus(`${SITE_PAGES.find(x=>x.file===currentFile)?.name||currentFile} 已載入。你現在看到的就是同一份網站 DOM。`);
+    if(currentDirty){
+      setStatus(`${SITE_PAGES.find(x=>x.file===currentFile)?.name||currentFile} 已載入本機草稿；重新整理後內容已保留。`);
+    }else{
+      setStatus(`${SITE_PAGES.find(x=>x.file===currentFile)?.name||currentFile} 已載入。你現在看到的就是同一份網站 DOM。`);
+    }
   }catch(err){ console.error(err); setStatus(`畫布初始化失敗：${err.message}`); }
 });
-$('#pageSelect').addEventListener('change',e=>loadPage(e.target.value));
+$('#pageSelect').addEventListener('change',async e=>{
+  try{ await loadPage(e.target.value); }
+  catch(err){ console.error(err); setStatus(`換頁失敗：${err.message}`); alert(`換頁失敗：${err.message}`); }
+});
 $('#btnReload').addEventListener('click',reloadCurrentFromLive);
-$('#btnSave').addEventListener('click',saveDraftState);
+$('#btnSelfCheck').addEventListener('click',runSelfCheckUi);
+$('#btnRunSelfCheck').addEventListener('click',runSelfCheckUi);
+$('#btnCloseSelfCheck').addEventListener('click',()=>$('#selfCheckDialog').close());
+$('#btnSave').addEventListener('click',async()=>{
+  try{ await saveDraftState(); }
+  catch(err){
+    console.error(err);
+    setStatus(`草稿儲存失敗：${err.message}`);
+    alert(`草稿儲存失敗：${err.message}`);
+  }
+});
 $('#btnUndo').addEventListener('click',undo);
 $('#btnRedo').addEventListener('click',redo);
 
@@ -901,8 +1105,22 @@ $('#btnDoPublish').addEventListener('click',doPublish);
 $('#btnOpenPreview').addEventListener('click',async()=>{
   const ok=await verifyPreviewNow();
   if(!ok) return;
+  const snap=await dbGet(PREVIEW_SNAPSHOT_KEY);
+  if(!snap) return;
   const url=latestPreviewUrl||`${location.origin}/preview/index.html?v=${Date.now()}`;
   window.open(url,'_blank','noopener');
+  snap.viewedAt=Date.now();
+  await dbPut(PREVIEW_SNAPSHOT_KEY,snap);
+  const same=await snapshotStillMatchesDraft(snap);
+  $('#btnPromote').disabled=!(same && snap.dirtyFiles?.length);
+  if(same) setStatus('測試版已開啟。確認畫面正常後，可按「③ 套用正式網站」。');
+  else setStatus('草稿已在測試版後變更，請重新發布測試版。');
+});
+
+/* ---------- leave-page safety ---------- */
+window.addEventListener('pagehide',()=>{
+  try{ if(hasLoadedPage) captureCurrentPage(); }catch{}
+  persistDraftMap({silent:true}).catch(()=>{});
 });
 
 /* ---------- startup ---------- */
@@ -917,9 +1135,10 @@ $('#btnOpenPreview').addEventListener('click',async()=>{
       $('#btnCheckPreview').disabled=false;
       const ready=await checkPreviewReady(latestPreviewId);
       $('#btnOpenPreview').disabled=!ready;
-      $('#btnPromote').disabled=!(ready && preview?.dirtyFiles?.length);
+      $('#btnPromote').disabled=true;
     }
     await loadPage('index.html');
+    setStatus(`${BUILD} 已完成啟動。草稿自動儲存與 Preview 安全機制已啟用。`);
   }catch(err){
     console.error(err); setStatus(`啟動失敗：${err.message}`);
   }
