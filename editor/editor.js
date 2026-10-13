@@ -22,6 +22,26 @@ async function initLogin(){
   const pass=document.querySelector('#loginPass');
   const err=document.querySelector('#loginError');
   const toggle=document.querySelector('#togglePassword');
+
+  // V10.1：避免瀏覽器密碼管理器／舊 autofill 把帳號欄鎖住或塞入異常字串。
+  [user,pass].forEach(input=>{
+    input.disabled=false;
+    input.readOnly=false;
+    input.removeAttribute('disabled');
+    input.removeAttribute('readonly');
+  });
+  user.value='luke';
+  pass.value='';
+  setTimeout(()=>{
+    user.disabled=false;
+    user.readOnly=false;
+    pass.disabled=false;
+    pass.readOnly=false;
+  },50);
+  // login card focus helper
+  user.addEventListener('click',()=>user.focus());
+  pass.addEventListener('click',()=>pass.focus());
+
   toggle.addEventListener('click',()=>{
     const show=pass.type==='password';
     pass.type=show?'text':'password';
@@ -30,7 +50,7 @@ async function initLogin(){
   form.addEventListener('submit',async e=>{
     e.preventDefault();
     const ok=user.value.trim()===LOGIN_USERNAME && await sha256Hex(pass.value)===LOGIN_PASSWORD_SHA256;
-    if(ok){ sessionStorage.setItem(LOGIN_SESSION_KEY,'ok'); unlock(); pass.value=''; }
+    if(ok){ sessionStorage.setItem(LOGIN_SESSION_KEY,'ok'); err.textContent=''; unlock(); pass.value=''; }
     else{ err.textContent='帳號或密碼錯誤。'; pass.value=''; pass.focus(); }
   });
 }

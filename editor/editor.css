@@ -73,3 +73,24 @@ dialog::backdrop{background:rgba(0,0,0,.68)}
   .brand{width:100%}
   .publishbar{margin-left:0}
 }
+
+/* V10.1 login input fix */
+.login-card input{
+  pointer-events:auto !important;
+  user-select:text !important;
+  -webkit-user-select:text !important;
+  caret-color:#67e5aa !important;
+  opacity:1 !important;
+  color:#f5fbf8 !important;
+  background:#0c1114 !important;
+}
+.login-card input:focus{
+  outline:2px solid #67e5aa !important;
+  outline-offset:1px;
+}
+.login-hint{
+  color:#6f8279;
+  font-size:10px;
+  font-weight:400;
+  margin-top:1px;
+}
