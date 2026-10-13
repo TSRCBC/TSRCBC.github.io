@@ -1,3446 +1,826 @@
-
 (() => {
-  'use strict';
+'use strict';
 
-  // -------- V8.4 前端管理者登入鎖 --------
-  const LOGIN_USERNAME = 'luke';
-  const LOGIN_PASSWORD_SHA256 = '23f26c1f19c8ef676e496b4021c12831ecbd11c4ba400b516dda4badf653d71c';
-  const LOGIN_SESSION_KEY = 'chinon-admin-auth-v84';
+/* ---------- login ---------- */
+const LOGIN_USERNAME = 'luke';
+const LOGIN_PASSWORD_SHA256 = '23f26c1f19c8ef676e496b4021c12831ecbd11c4ba400b516dda4badf653d71c';
+const LOGIN_SESSION_KEY = 'chinon-v10-auth';
 
-  async function sha256Hex(value) {
-    const data = new TextEncoder().encode(value);
-    const digest = await crypto.subtle.digest('SHA-256', data);
-    return [...new Uint8Array(digest)]
-      .map(b => b.toString(16).padStart(2,'0'))
-      .join('');
+async function sha256Hex(value){
+  const bytes = new TextEncoder().encode(String(value ?? ''));
+  const hash = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function unlock(){
+  document.body.classList.remove('auth-locked');
+  document.querySelector('#loginGate')?.classList.add('hidden');
+}
+async function initLogin(){
+  if(sessionStorage.getItem(LOGIN_SESSION_KEY)==='ok'){ unlock(); return; }
+  const form=document.querySelector('#loginForm');
+  const user=document.querySelector('#loginUser');
+  const pass=document.querySelector('#loginPass');
+  const err=document.querySelector('#loginError');
+  const toggle=document.querySelector('#togglePassword');
+  toggle.addEventListener('click',()=>{
+    const show=pass.type==='password';
+    pass.type=show?'text':'password';
+    toggle.textContent=show?'隱藏':'顯示';
+  });
+  form.addEventListener('submit',async e=>{
+    e.preventDefault();
+    const ok=user.value.trim()===LOGIN_USERNAME && await sha256Hex(pass.value)===LOGIN_PASSWORD_SHA256;
+    if(ok){ sessionStorage.setItem(LOGIN_SESSION_KEY,'ok'); unlock(); pass.value=''; }
+    else{ err.textContent='帳號或密碼錯誤。'; pass.value=''; pass.focus(); }
+  });
+}
+initLogin();
+
+/* ---------- config ---------- */
+const $ = s => document.querySelector(s);
+const SITE_PAGES = [
+  {file:'index.html',name:'首頁'},
+  {file:'about.html',name:'關於奇農'},
+  {file:'craft.html',name:'製茶堅持'},
+  {file:'gaba.html',name:'GABA桑茶'},
+  {file:'maca.html',name:'秘魯瑪卡'},
+  {file:'certificates.html',name:'檢測證書'},
+  {file:'info.html',name:'相關資訊'},
+  {file:'contact.html',name:'聯繫我們'}
+];
+const SITE_FILES = new Set(SITE_PAGES.map(x=>x.file));
+const iframe = $('#siteFrame');
+const frameBox = $('#canvasFrame');
+const statusEl = $('#status');
+const DRAFT_DB = 'chinon-v10-editor';
+const DRAFT_STORE = 'state';
+const DRAFT_KEY = 'draft-v10';
+const PREVIEW_SNAPSHOT_KEY = 'preview-snapshot-v10';
+const PUBLISH_SETTINGS_KEY = 'chinon-v10-publish-settings';
+const TOKEN_SESSION_KEY = 'chinon-v10-token';
+const TOKEN_LOCAL_KEY = 'chinon-v10-token-local';
+
+let currentFile = 'index.html';
+let currentBaseHash = '';
+let currentLiveSource = '';
+let selected = null;
+let currentDirty = false;
+let dragState = null;
+let resizeState = null;
+let pageDrafts = new Map();
+let undoStack = [];
+let redoStack = [];
+let latestPreviewUrl = '';
+let latestPreviewCommit = '';
+
+const EDITOR_STYLE_ID = 'chinon-v10-editor-style';
+const HANDLE_ID = 'chinon-v10-resize-handle';
+const SELECT_ATTR = 'data-chinon-v10-selected';
+const ADDED_ATTR = 'data-chinon-v10-added';
+const FLOAT_ATTR = 'data-chinon-v10-float';
+const PLACEHOLDER_ATTR = 'data-chinon-v10-placeholder';
+const INTERNAL_ATTRS = [SELECT_ATTR,'data-chinon-v10-editing'];
+
+function setStatus(msg){ statusEl.textContent=msg; }
+
+/* ---------- IndexedDB ---------- */
+function openDb(){
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open(DRAFT_DB,1);
+    req.onupgradeneeded=()=>{ if(!req.result.objectStoreNames.contains(DRAFT_STORE)) req.result.createObjectStore(DRAFT_STORE); };
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
+}
+async function dbGet(key){
+  const db=await openDb();
+  try{
+    return await new Promise((resolve,reject)=>{
+      const tx=db.transaction(DRAFT_STORE,'readonly');
+      const req=tx.objectStore(DRAFT_STORE).get(key);
+      req.onsuccess=()=>resolve(req.result||null);
+      req.onerror=()=>reject(req.error);
+    });
+  }finally{ db.close(); }
+}
+async function dbPut(key,value){
+  const db=await openDb();
+  try{
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(DRAFT_STORE,'readwrite');
+      tx.objectStore(DRAFT_STORE).put(value,key);
+      tx.oncomplete=resolve;
+      tx.onerror=()=>reject(tx.error);
+    });
+  }finally{ db.close(); }
+}
+async function saveDraftState(){
+  captureCurrentPage();
+  const payload={pages:[...pageDrafts.entries()],savedAt:Date.now()};
+  await dbPut(DRAFT_KEY,payload);
+  setStatus('草稿已儲存在這台電腦。正式網站沒有變更。');
+}
+async function restoreDraftState(){
+  const saved=await dbGet(DRAFT_KEY);
+  if(saved?.pages) pageDrafts=new Map(saved.pages);
+}
+
+/* ---------- helpers ---------- */
+async function hashText(text){ return sha256Hex(text); }
+async function fetchLive(file){
+  const res=await fetch(`../${file}?v10=${Date.now()}`,{cache:'no-store'});
+  if(!res.ok) throw new Error(`${file} 讀取失敗 (${res.status})`);
+  return await res.text();
+}
+function isTextElement(el){
+  if(!el) return false;
+  return ['H1','H2','H3','H4','H5','H6','P','SPAN','A','BUTTON','LI','STRONG','EM','SMALL','LABEL','FIGCAPTION','TD','TH'].includes(el.tagName);
+}
+function cleanDocumentHtml(doc){
+  const clone=doc.documentElement.cloneNode(true);
+  clone.querySelector(`#${EDITOR_STYLE_ID}`)?.remove();
+  clone.querySelector(`#${HANDLE_ID}`)?.remove();
+  clone.querySelectorAll(`[${SELECT_ATTR}]`).forEach(el=>el.removeAttribute(SELECT_ATTR));
+  clone.querySelectorAll('[contenteditable]').forEach(el=>el.removeAttribute('contenteditable'));
+  clone.querySelectorAll('[data-chinon-v10-editing]').forEach(el=>el.removeAttribute('data-chinon-v10-editing'));
+  clone.querySelector('base[data-chinon-v10-base]')?.remove();
+  return '<!doctype html>\n'+clone.outerHTML;
+}
+function toEditorSrcdoc(html){
+  const doc=new DOMParser().parseFromString(html,'text/html');
+  let base=doc.head.querySelector('base[data-chinon-v10-base]');
+  if(!base){
+    base=doc.createElement('base');
+    base.setAttribute('data-chinon-v10-base','1');
+    doc.head.prepend(base);
   }
+  base.href='/';
+  return '<!doctype html>\n'+doc.documentElement.outerHTML;
+}
+function captureCurrentPage(){
+  const doc=iframe.contentDocument;
+  if(!doc?.documentElement || !currentFile) return;
+  const html=cleanDocumentHtml(doc);
+  pageDrafts.set(currentFile,{html,baseHash:currentBaseHash,dirty:currentDirty});
+}
+function markDirty(){
+  currentDirty=true;
+  const draft=pageDrafts.get(currentFile);
+  if(draft) draft.dirty=true;
+  $('#btnPromote').disabled=true;
+  latestPreviewCommit='';
+  setStatus('有尚未發布的修改。先「① 發布測試版」查看實際結果。');
+}
+function pushUndo(){
+  const doc=iframe.contentDocument;
+  if(!doc) return;
+  undoStack.push(cleanDocumentHtml(doc));
+  if(undoStack.length>30) undoStack.shift();
+  redoStack=[];
+}
+function applySnapshot(html){
+  iframe.srcdoc=toEditorSrcdoc(html);
+}
+function undo(){
+  if(!undoStack.length) return;
+  const current=cleanDocumentHtml(iframe.contentDocument);
+  redoStack.push(current);
+  applySnapshot(undoStack.pop());
+  markDirty();
+}
+function redo(){
+  if(!redoStack.length) return;
+  const current=cleanDocumentHtml(iframe.contentDocument);
+  undoStack.push(current);
+  applySnapshot(redoStack.pop());
+  markDirty();
+}
 
-  function unlockEditor() {
-    const gate = document.querySelector('#loginGate');
-    document.body.classList.remove('auth-locked');
-    gate?.classList.add('is-hidden');
-    gate?.setAttribute('aria-hidden','true');
+/* ---------- load pages ---------- */
+async function loadPage(file,{forceLive=false}={}){
+  if(currentFile && iframe.contentDocument?.documentElement) captureCurrentPage();
+
+  currentFile=file;
+  $('#pageSelect').value=file;
+  selected=null;
+  $('#selectedLabel').textContent='尚未選取';
+  undoStack=[]; redoStack=[];
+  setStatus(`正在載入 ${SITE_PAGES.find(x=>x.file===file)?.name||file}…`);
+
+  const live=await fetchLive(file);
+  currentLiveSource=live;
+  currentBaseHash=await hashText(live);
+
+  const draft=pageDrafts.get(file);
+  if(!forceLive && draft?.html && draft.baseHash===currentBaseHash){
+    currentDirty=!!draft.dirty;
+    iframe.srcdoc=toEditorSrcdoc(draft.html);
+  }else{
+    if(draft && draft.baseHash!==currentBaseHash) pageDrafts.delete(file);
+    currentDirty=false;
+    iframe.removeAttribute('srcdoc');
+    iframe.src=`../${file}?editorV10=${Date.now()}`;
   }
+}
+async function reloadCurrentFromLive(){
+  if(!confirm('這會捨棄目前這一頁尚未發布的草稿，重新抓正式網站。確定？')) return;
+  pageDrafts.delete(currentFile);
+  currentDirty=false;
+  await loadPage(currentFile,{forceLive:true});
+  await saveDraftState();
+}
 
-  function initAdminLogin() {
-    const gate = document.querySelector('#loginGate');
-    if (!gate) return;
-
-    if (sessionStorage.getItem(LOGIN_SESSION_KEY) === 'ok') {
-      unlockEditor();
-      return;
+/* ---------- iframe editor ---------- */
+function injectEditorUi(doc){
+  doc.getElementById(EDITOR_STYLE_ID)?.remove();
+  const style=doc.createElement('style');
+  style.id=EDITOR_STYLE_ID;
+  style.textContent=`
+    [${SELECT_ATTR}="1"]{outline:2px solid #7c5cff!important;outline-offset:2px!important}
+    [data-chinon-v10-editing="1"]{outline:2px dashed #11a36a!important}
+    #${HANDLE_ID}{
+      position:absolute;width:14px;height:14px;border-radius:4px;background:#7c5cff;
+      border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,.35);
+      z-index:2147483647;cursor:nwse-resize;display:none
     }
+    [${FLOAT_ATTR}="1"]{cursor:move!important}
+  `;
+  doc.head.appendChild(style);
 
-    const form = document.querySelector('#loginForm');
-    const user = document.querySelector('#loginUser');
-    const pass = document.querySelector('#loginPass');
-    const error = document.querySelector('#loginError');
-    const toggle = document.querySelector('#togglePassword');
-    const card = gate.querySelector('.login-card');
-
-    toggle?.addEventListener('click', () => {
-      const show = pass.type === 'password';
-      pass.type = show ? 'text' : 'password';
-      toggle.textContent = show ? '隱藏' : '顯示';
-      toggle.setAttribute('aria-label', show ? '隱藏密碼' : '顯示密碼');
-    });
-
-    form?.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      error.textContent = '';
-
-      const inputUser = user.value.trim();
-      const inputHash = await sha256Hex(pass.value);
-
-      if (inputUser === LOGIN_USERNAME && inputHash === LOGIN_PASSWORD_SHA256) {
-        sessionStorage.setItem(LOGIN_SESSION_KEY,'ok');
-        unlockEditor();
-        setTimeout(() => user.value = pass.value = '', 400);
-        return;
-      }
-
-      error.textContent = '帳號或密碼錯誤，請重新輸入。';
-      pass.value = '';
-      pass.focus();
-      card?.classList.remove('shake');
-      void card?.offsetWidth;
-      card?.classList.add('shake');
-    });
-
-    setTimeout(() => user?.focus(), 120);
+  let handle=doc.getElementById(HANDLE_ID);
+  if(!handle){
+    handle=doc.createElement('div');
+    handle.id=HANDLE_ID;
+    doc.body.appendChild(handle);
   }
+  handle.addEventListener('pointerdown',startResize);
 
-  initAdminLogin();
+  doc.addEventListener('click',e=>{
+    if(e.target.id===HANDLE_ID) return;
+    if(e.target.closest('a')) e.preventDefault();
+    e.stopPropagation();
+    selectElement(e.target);
+  },true);
 
+  doc.addEventListener('dblclick',e=>{
+    const el=e.target;
+    if(!isTextElement(el)) return;
+    e.preventDefault(); e.stopPropagation();
+    pushUndo();
+    selectElement(el);
+    el.contentEditable='true';
+    el.setAttribute('data-chinon-v10-editing','1');
+    el.focus();
+    const finish=()=>{
+      el.contentEditable='false';
+      el.removeAttribute('data-chinon-v10-editing');
+      markDirty();
+      el.removeEventListener('blur',finish);
+    };
+    el.addEventListener('blur',finish);
+  },true);
 
-  const CFG = window.CHINON_CONFIG;
-  const $ = (s) => document.querySelector(s);
-  const statusText = $('#statusText');
-  const RUNTIME_BUILD = 'V9.0';
-  const STORAGE_KEY = 'chinon-warm-v72';
-  const INIT_KEY = 'chinon-warm-v72-init';
-  const SNAPSHOT_ATTR = 'data-chinon-move-snapshot';
-  const SITE_PAGES = [
-    { file:'index.html', name:'首頁' },
-    { file:'about.html', name:'關於奇農' },
-    { file:'craft.html', name:'製茶堅持' },
-    { file:'gaba.html', name:'GABA桑茶' },
-    { file:'maca.html', name:'秘魯瑪卡' },
-    { file:'certificates.html', name:'檢測證書' },
-    { file:'info.html', name:'相關資訊' },
-    { file:'contact.html', name:'聯繫我們' }
+  doc.addEventListener('input',e=>{
+    if(e.target?.isContentEditable) markDirty();
+  },true);
+
+  doc.addEventListener('pointerdown',e=>{
+    const el=e.target.closest?.(`[${FLOAT_ATTR}="1"]`);
+    if(!el || e.target.id===HANDLE_ID) return;
+    startFloatDrag(e,el);
+  },true);
+
+  doc.defaultView.addEventListener('scroll',updateHandle,{passive:true});
+  doc.defaultView.addEventListener('resize',updateHandle);
+}
+function selectElement(el){
+  if(!el || el===iframe.contentDocument?.body || el===iframe.contentDocument?.documentElement) return;
+  if(selected) selected.removeAttribute(SELECT_ATTR);
+  selected=el;
+  selected.setAttribute(SELECT_ATTR,'1');
+  $('#selectedLabel').textContent=`${el.tagName.toLowerCase()}${el.id?'#'+el.id:''}${el.classList.length?'.'+[...el.classList].slice(0,2).join('.'):''}`;
+  syncInspector();
+  updateHandle();
+}
+function updateHandle(){
+  const doc=iframe.contentDocument;
+  const handle=doc?.getElementById(HANDLE_ID);
+  if(!handle || !selected || !selected.isConnected){ if(handle) handle.style.display='none'; return; }
+  const r=selected.getBoundingClientRect();
+  handle.style.display='block';
+  handle.style.left=`${r.right + doc.defaultView.scrollX - 7}px`;
+  handle.style.top=`${r.bottom + doc.defaultView.scrollY - 7}px`;
+}
+function syncInspector(){
+  if(!selected) return;
+  const cs=iframe.contentWindow.getComputedStyle(selected);
+  const mappings=[
+    ['fontFamily','fontFamily'],['fontSize','fontSize'],['fontWeight','fontWeight'],
+    ['textAlign','textAlign'],['lineHeight','lineHeight'],['letterSpacing','letterSpacing'],
+    ['widthCtl','width'],['marginTop','marginTop'],['marginBottom','marginBottom'],
+    ['paddingTop','paddingTop'],['paddingBottom','paddingBottom'],['objectFit','objectFit'],
+    ['objectPosition','objectPosition'],['backgroundPosition','backgroundPosition'],
+    ['backgroundSize','backgroundSize'],['borderRadius','borderRadius'],['boxShadow','boxShadow'],
+    ['textShadow','textShadow']
   ];
-
-  const STABLE_KEY_ATTR = 'data-chinon-key';
-  const STABLE_PAGE_ATTR = 'data-chinon-page';
-  const STABLE_DRAFT_VERSION = 90;
-  const BLOCKED_STYLE_PROPS = new Set([
-    'position','top','right','bottom','left','z-index','transform'
-  ]);
-  const TEXT_PATCH_TAGS = new Set([
-    'H1','H2','H3','H4','H5','H6','P','SPAN','STRONG','EM','B','I','SMALL',
-    'BUTTON','A','LI','FIGCAPTION','LABEL','TD','TH','DT','DD'
-  ]);
-  const baselineByFile = new Map();
-  let preparedLivePages = [];
-
-  const editor = grapesjs.init({
-    container: '#gjs',
-    height: '100%',
-    width: 'auto',
-    fromElement: false,
-
-    storageManager: false,
-
-    deviceManager: {
-      devices: [
-        { id: 'Desktop', name: 'Desktop', width: '' },
-        { id: 'Tablet', name: 'Tablet', width: '820px', widthMedia: '980px' },
-        { id: 'Mobile', name: 'Mobile', width: '390px', widthMedia: '600px' }
-      ]
-    },
-
-    canvas: { styles: [CFG.fontUrl] },
-
-    selectorManager: { componentFirst: true },
-
-    styleManager: {
-      sectors: [
-        {
-          name: '位置／尺寸',
-          open: true,
-          properties: [
-            {
-              property: 'position', name: '定位方式', type: 'select',
-              options: [
-                { id:'static', label:'靜態（一般）' },
-                { id:'relative', label:'相對定位' },
-                { id:'absolute', label:'絕對定位' },
-                { id:'fixed', label:'固定在畫面' },
-                { id:'sticky', label:'黏著定位' }
-              ]
-            },
-            {
-              property:'z-index', name:'圖層順序', type:'select',
-              options:[
-                {id:'auto',label:'自動'},
-                {id:'0',label:'0'},
-                {id:'1',label:'1'},
-                {id:'2',label:'2'},
-                {id:'5',label:'5'},
-                {id:'10',label:'10'},
-                {id:'20',label:'20'},
-                {id:'50',label:'50'},
-                {id:'100',label:'100'},
-                {id:'999',label:'最上層 999'}
-              ]
-            },
-            {
-              property:'top', name:'上方位置', type:'select',
-              options:[
-                {id:'auto',label:'自動'},{id:'-100px',label:'-100 px'},{id:'-50px',label:'-50 px'},
-                {id:'-20px',label:'-20 px'},{id:'-10px',label:'-10 px'},{id:'0',label:'0'},
-                {id:'10px',label:'10 px'},{id:'20px',label:'20 px'},{id:'50px',label:'50 px'},
-                {id:'100px',label:'100 px'},{id:'25%',label:'25%'},{id:'50%',label:'50%'}
-              ]
-            },
-            {
-              property:'right', name:'右方位置', type:'select',
-              options:[
-                {id:'auto',label:'自動'},{id:'-100px',label:'-100 px'},{id:'-50px',label:'-50 px'},
-                {id:'-20px',label:'-20 px'},{id:'-10px',label:'-10 px'},{id:'0',label:'0'},
-                {id:'10px',label:'10 px'},{id:'20px',label:'20 px'},{id:'50px',label:'50 px'},
-                {id:'100px',label:'100 px'},{id:'25%',label:'25%'},{id:'50%',label:'50%'}
-              ]
-            },
-            {
-              property:'bottom', name:'下方位置', type:'select',
-              options:[
-                {id:'auto',label:'自動'},{id:'-100px',label:'-100 px'},{id:'-50px',label:'-50 px'},
-                {id:'-20px',label:'-20 px'},{id:'-10px',label:'-10 px'},{id:'0',label:'0'},
-                {id:'10px',label:'10 px'},{id:'20px',label:'20 px'},{id:'50px',label:'50 px'},
-                {id:'100px',label:'100 px'},{id:'25%',label:'25%'},{id:'50%',label:'50%'}
-              ]
-            },
-            {
-              property:'left', name:'左方位置', type:'select',
-              options:[
-                {id:'auto',label:'自動'},{id:'-100px',label:'-100 px'},{id:'-50px',label:'-50 px'},
-                {id:'-20px',label:'-20 px'},{id:'-10px',label:'-10 px'},{id:'0',label:'0'},
-                {id:'10px',label:'10 px'},{id:'20px',label:'20 px'},{id:'50px',label:'50 px'},
-                {id:'100px',label:'100 px'},{id:'25%',label:'25%'},{id:'50%',label:'50%'}
-              ]
-            },
-            {
-              property:'width', name:'寬度', type:'select',
-              options:[
-                {id:'auto',label:'自動'},
-                {id:'fit-content',label:'依內容'},
-                {id:'25%',label:'25%'},{id:'33.333%',label:'1/3'},
-                {id:'50%',label:'50%'},{id:'66.667%',label:'2/3'},
-                {id:'75%',label:'75%'},{id:'100%',label:'100%'},
-                {id:'200px',label:'200 px'},{id:'300px',label:'300 px'},
-                {id:'400px',label:'400 px'},{id:'500px',label:'500 px'},
-                {id:'600px',label:'600 px'},{id:'800px',label:'800 px'}
-              ]
-            },
-            {
-              property:'height', name:'高度', type:'select',
-              options:[
-                {id:'auto',label:'自動'},
-                {id:'100px',label:'100 px'},{id:'150px',label:'150 px'},
-                {id:'200px',label:'200 px'},{id:'300px',label:'300 px'},
-                {id:'400px',label:'400 px'},{id:'500px',label:'500 px'},
-                {id:'600px',label:'600 px'},{id:'100vh',label:'滿版高度'}
-              ]
-            },
-            {
-              property:'min-width', name:'最小寬度', type:'select',
-              options:[
-                {id:'auto',label:'自動'},{id:'0',label:'0'},
-                {id:'200px',label:'200 px'},{id:'300px',label:'300 px'},
-                {id:'50%',label:'50%'},{id:'100%',label:'100%'}
-              ]
-            },
-            {
-              property:'max-width', name:'最大寬度', type:'select',
-              options:[
-                {id:'none',label:'不限'},{id:'320px',label:'320 px'},
-                {id:'480px',label:'480 px'},{id:'640px',label:'640 px'},
-                {id:'800px',label:'800 px'},{id:'1000px',label:'1000 px'},
-                {id:'1200px',label:'1200 px'},{id:'100%',label:'100%'}
-              ]
-            },
-            {
-              property:'display', name:'顯示方式', type:'select',
-              options:[
-                {id:'block',label:'區塊'},
-                {id:'inline',label:'行內'},
-                {id:'inline-block',label:'行內區塊'},
-                {id:'flex',label:'彈性排列 Flex'},
-                {id:'grid',label:'網格 Grid'},
-                {id:'none',label:'隱藏'}
-              ]
-            },
-            {
-              property:'overflow', name:'超出內容', type:'select',
-              options:[
-                {id:'visible',label:'顯示'},
-                {id:'hidden',label:'隱藏'},
-                {id:'auto',label:'需要時捲動'},
-                {id:'scroll',label:'永遠捲動'}
-              ]
-            },
-            {
-              property:'transform', name:'變形效果', type:'select',
-              options:[
-                {id:'none',label:'無'},
-                {id:'scale(0.8)',label:'縮小 80%'},
-                {id:'scale(0.9)',label:'縮小 90%'},
-                {id:'scale(1.1)',label:'放大 110%'},
-                {id:'scale(1.2)',label:'放大 120%'},
-                {id:'rotate(-5deg)',label:'向左轉 5°'},
-                {id:'rotate(5deg)',label:'向右轉 5°'},
-                {id:'rotate(-10deg)',label:'向左轉 10°'},
-                {id:'rotate(10deg)',label:'向右轉 10°'}
-              ]
-            }
-          ]
-        },
-
-        {
-          name: '文字',
-          open: true,
-          properties: [
-            {
-              property: 'font-family',
-              name: '字型',
-              type: 'select',
-              options: [
-                { id: '"Noto Sans TC", sans-serif', label: '思源黑體' },
-                { id: '"Noto Serif TC", serif', label: '思源宋體' },
-                { id: '"LXGW WenKai TC", serif', label: '霞鶩文楷' },
-                { id: '"Iansui", cursive', label: '芫荽體' },
-                { id: '"Klee One", cursive', label: 'Klee 手寫體' },
-                { id: '"Zen Kurenaido", cursive', label: 'Zen 手寫體' },
-                { id: '"Yuji Syuku", serif', label: 'Yuji 書寫體' },
-                { id: 'Arial, sans-serif', label: 'Arial' },
-                { id: '"Times New Roman", serif', label: 'Times New Roman' }
-              ]
-            },
-            {
-              property:'font-size', name:'字體大小', type:'select',
-              options:[
-                {id:'12px',label:'12 px｜極小'},
-                {id:'14px',label:'14 px｜小'},
-                {id:'16px',label:'16 px｜一般內文'},
-                {id:'18px',label:'18 px'},
-                {id:'20px',label:'20 px'},
-                {id:'22px',label:'22 px'},
-                {id:'24px',label:'24 px'},
-                {id:'28px',label:'28 px'},
-                {id:'32px',label:'32 px'},
-                {id:'36px',label:'36 px'},
-                {id:'40px',label:'40 px'},
-                {id:'48px',label:'48 px'},
-                {id:'56px',label:'56 px'},
-                {id:'64px',label:'64 px'},
-                {id:'72px',label:'72 px'},
-                {id:'80px',label:'80 px'},
-                {id:'96px',label:'96 px'},
-                {id:'120px',label:'120 px'},
-                {id:'144px',label:'144 px'}
-              ]
-            },
-            {
-              property:'font-weight', name:'粗細', type:'select',
-              options:[
-                {id:'100',label:'100｜極細'},
-                {id:'200',label:'200｜很細'},
-                {id:'300',label:'300｜細'},
-                {id:'400',label:'400｜一般'},
-                {id:'500',label:'500｜中等'},
-                {id:'600',label:'600｜半粗'},
-                {id:'700',label:'700｜粗體'},
-                {id:'800',label:'800｜很粗'},
-                {id:'900',label:'900｜最粗'}
-              ]
-            },
-            {
-              property:'font-style', name:'斜體', type:'select',
-              options:[
-                {id:'normal',label:'一般'},
-                {id:'italic',label:'斜體'}
-              ]
-            },
-            {
-              property:'text-decoration', name:'文字裝飾', type:'select',
-              options:[
-                {id:'none',label:'無'},
-                {id:'underline',label:'底線'},
-                {id:'line-through',label:'刪除線'},
-                {id:'overline',label:'上線'}
-              ]
-            },
-            {
-              property:'line-height', name:'行高', type:'select',
-              options:[
-                {id:'0.8',label:'0.8｜很緊'},
-                {id:'0.9',label:'0.9'},
-                {id:'1',label:'1.0｜緊'},
-                {id:'1.1',label:'1.1'},
-                {id:'1.2',label:'1.2'},
-                {id:'1.3',label:'1.3'},
-                {id:'1.4',label:'1.4｜一般'},
-                {id:'1.5',label:'1.5'},
-                {id:'1.6',label:'1.6'},
-                {id:'1.8',label:'1.8'},
-                {id:'2',label:'2.0｜寬鬆'},
-                {id:'2.2',label:'2.2'},
-                {id:'2.5',label:'2.5'}
-              ]
-            },
-            {
-              property:'letter-spacing', name:'字距', type:'select',
-              options:[
-                {id:'-3px',label:'-3 px｜很緊'},
-                {id:'-2px',label:'-2 px'},
-                {id:'-1px',label:'-1 px'},
-                {id:'0px',label:'0｜一般'},
-                {id:'0.5px',label:'0.5 px'},
-                {id:'1px',label:'1 px'},
-                {id:'2px',label:'2 px'},
-                {id:'3px',label:'3 px'},
-                {id:'4px',label:'4 px'},
-                {id:'6px',label:'6 px'},
-                {id:'8px',label:'8 px'},
-                {id:'10px',label:'10 px'}
-              ]
-            },
-            {
-              property:'color', name:'文字顏色', type:'color', default:'#1b241e'
-            },
-            {
-              property:'text-align', name:'對齊', type:'select',
-              options:[
-                {id:'left',label:'靠左'},
-                {id:'center',label:'置中'},
-                {id:'right',label:'靠右'},
-                {id:'justify',label:'左右對齊'}
-              ]
-            },
-            {
-              property:'text-shadow', name:'文字陰影', type:'select',
-              options:[
-                {id:'none',label:'無陰影'},
-                {id:'0 1px 2px rgba(0,0,0,.18)',label:'淡陰影'},
-                {id:'0 2px 4px rgba(0,0,0,.22)',label:'柔和陰影'},
-                {id:'0 3px 8px rgba(0,0,0,.28)',label:'中等陰影'},
-                {id:'0 6px 16px rgba(0,0,0,.32)',label:'明顯陰影'},
-                {id:'1px 1px 0 rgba(255,255,255,.75)',label:'淺色浮雕'},
-                {id:'2px 2px 0 rgba(0,0,0,.18)',label:'硬邊陰影'}
-              ]
-            }
-          ]
-        },
-
-        {
-          name:'間距',
-          open:false,
-          properties:[
-            {
-              property:'margin-top', name:'上外距', type:'select',
-              options:[
-                {id:'auto',label:'自動'},{id:'-40px',label:'-40 px'},{id:'-24px',label:'-24 px'},
-                {id:'-16px',label:'-16 px'},{id:'-8px',label:'-8 px'},{id:'0',label:'0'},
-                {id:'4px',label:'4 px'},{id:'8px',label:'8 px'},{id:'12px',label:'12 px'},
-                {id:'16px',label:'16 px'},{id:'20px',label:'20 px'},{id:'24px',label:'24 px'},
-                {id:'32px',label:'32 px'},{id:'40px',label:'40 px'},{id:'48px',label:'48 px'},
-                {id:'64px',label:'64 px'},{id:'80px',label:'80 px'},{id:'96px',label:'96 px'}
-              ]
-            },
-            {
-              property:'margin-right', name:'右外距', type:'select',
-              options:[
-                {id:'auto',label:'自動'},{id:'-40px',label:'-40 px'},{id:'-24px',label:'-24 px'},
-                {id:'-16px',label:'-16 px'},{id:'-8px',label:'-8 px'},{id:'0',label:'0'},
-                {id:'4px',label:'4 px'},{id:'8px',label:'8 px'},{id:'12px',label:'12 px'},
-                {id:'16px',label:'16 px'},{id:'20px',label:'20 px'},{id:'24px',label:'24 px'},
-                {id:'32px',label:'32 px'},{id:'40px',label:'40 px'},{id:'48px',label:'48 px'},
-                {id:'64px',label:'64 px'},{id:'80px',label:'80 px'},{id:'96px',label:'96 px'}
-              ]
-            },
-            {
-              property:'margin-bottom', name:'下外距', type:'select',
-              options:[
-                {id:'auto',label:'自動'},{id:'-40px',label:'-40 px'},{id:'-24px',label:'-24 px'},
-                {id:'-16px',label:'-16 px'},{id:'-8px',label:'-8 px'},{id:'0',label:'0'},
-                {id:'4px',label:'4 px'},{id:'8px',label:'8 px'},{id:'12px',label:'12 px'},
-                {id:'16px',label:'16 px'},{id:'20px',label:'20 px'},{id:'24px',label:'24 px'},
-                {id:'32px',label:'32 px'},{id:'40px',label:'40 px'},{id:'48px',label:'48 px'},
-                {id:'64px',label:'64 px'},{id:'80px',label:'80 px'},{id:'96px',label:'96 px'}
-              ]
-            },
-            {
-              property:'margin-left', name:'左外距', type:'select',
-              options:[
-                {id:'auto',label:'自動'},{id:'-40px',label:'-40 px'},{id:'-24px',label:'-24 px'},
-                {id:'-16px',label:'-16 px'},{id:'-8px',label:'-8 px'},{id:'0',label:'0'},
-                {id:'4px',label:'4 px'},{id:'8px',label:'8 px'},{id:'12px',label:'12 px'},
-                {id:'16px',label:'16 px'},{id:'20px',label:'20 px'},{id:'24px',label:'24 px'},
-                {id:'32px',label:'32 px'},{id:'40px',label:'40 px'},{id:'48px',label:'48 px'},
-                {id:'64px',label:'64 px'},{id:'80px',label:'80 px'},{id:'96px',label:'96 px'}
-              ]
-            },
-            {
-              property:'padding-top', name:'上內距', type:'select',
-              options:[
-                {id:'0',label:'0'},{id:'4px',label:'4 px'},{id:'8px',label:'8 px'},
-                {id:'12px',label:'12 px'},{id:'16px',label:'16 px'},{id:'20px',label:'20 px'},
-                {id:'24px',label:'24 px'},{id:'32px',label:'32 px'},{id:'40px',label:'40 px'},
-                {id:'48px',label:'48 px'},{id:'64px',label:'64 px'},{id:'80px',label:'80 px'},
-                {id:'96px',label:'96 px'},{id:'120px',label:'120 px'}
-              ]
-            },
-            {
-              property:'padding-right', name:'右內距', type:'select',
-              options:[
-                {id:'0',label:'0'},{id:'4px',label:'4 px'},{id:'8px',label:'8 px'},
-                {id:'12px',label:'12 px'},{id:'16px',label:'16 px'},{id:'20px',label:'20 px'},
-                {id:'24px',label:'24 px'},{id:'32px',label:'32 px'},{id:'40px',label:'40 px'},
-                {id:'48px',label:'48 px'},{id:'64px',label:'64 px'},{id:'80px',label:'80 px'},
-                {id:'96px',label:'96 px'},{id:'120px',label:'120 px'}
-              ]
-            },
-            {
-              property:'padding-bottom', name:'下內距', type:'select',
-              options:[
-                {id:'0',label:'0'},{id:'4px',label:'4 px'},{id:'8px',label:'8 px'},
-                {id:'12px',label:'12 px'},{id:'16px',label:'16 px'},{id:'20px',label:'20 px'},
-                {id:'24px',label:'24 px'},{id:'32px',label:'32 px'},{id:'40px',label:'40 px'},
-                {id:'48px',label:'48 px'},{id:'64px',label:'64 px'},{id:'80px',label:'80 px'},
-                {id:'96px',label:'96 px'},{id:'120px',label:'120 px'}
-              ]
-            },
-            {
-              property:'padding-left', name:'左內距', type:'select',
-              options:[
-                {id:'0',label:'0'},{id:'4px',label:'4 px'},{id:'8px',label:'8 px'},
-                {id:'12px',label:'12 px'},{id:'16px',label:'16 px'},{id:'20px',label:'20 px'},
-                {id:'24px',label:'24 px'},{id:'32px',label:'32 px'},{id:'40px',label:'40 px'},
-                {id:'48px',label:'48 px'},{id:'64px',label:'64 px'},{id:'80px',label:'80 px'},
-                {id:'96px',label:'96 px'},{id:'120px',label:'120 px'}
-              ]
-            }
-          ]
-        },
-
-        {
-          name:'背景／外觀',
-          open:false,
-          properties:[
-            { property:'background-color', name:'背景顏色', type:'color', default:'#ffffff' },
-            {
-              property:'background-position', name:'背景位置', type:'select',
-              options:[
-                {id:'center center',label:'置中'},
-                {id:'left top',label:'左上'},
-                {id:'center top',label:'上方置中'},
-                {id:'right top',label:'右上'},
-                {id:'left center',label:'左側置中'},
-                {id:'right center',label:'右側置中'},
-                {id:'left bottom',label:'左下'},
-                {id:'center bottom',label:'下方置中'},
-                {id:'right bottom',label:'右下'}
-              ]
-            },
-            {
-              property:'background-size', name:'背景尺寸', type:'select',
-              options:[
-                {id:'auto',label:'原始尺寸'},
-                {id:'cover',label:'填滿裁切'},
-                {id:'contain',label:'完整顯示'},
-                {id:'100% auto',label:'寬度 100%'},
-                {id:'auto 100%',label:'高度 100%'},
-                {id:'100% 100%',label:'拉滿區塊'}
-              ]
-            },
-            {
-              property:'background-repeat', name:'背景重複', type:'select',
-              options:[
-                {id:'no-repeat',label:'不重複'},
-                {id:'repeat',label:'全部重複'},
-                {id:'repeat-x',label:'水平重複'},
-                {id:'repeat-y',label:'垂直重複'}
-              ]
-            },
-            {
-              property:'border-style', name:'框線樣式', type:'select',
-              options:[
-                {id:'none',label:'無框線'},
-                {id:'solid',label:'實線'},
-                {id:'dashed',label:'虛線'},
-                {id:'dotted',label:'點線'},
-                {id:'double',label:'雙線'}
-              ]
-            },
-            {
-              property:'border-top-width', name:'上框線', type:'select',
-              options:[
-                {id:'0',label:'0'},{id:'1px',label:'1 px'},{id:'2px',label:'2 px'},
-                {id:'3px',label:'3 px'},{id:'4px',label:'4 px'},{id:'6px',label:'6 px'},
-                {id:'8px',label:'8 px'},{id:'10px',label:'10 px'}
-              ]
-            },
-            {
-              property:'border-right-width', name:'右框線', type:'select',
-              options:[
-                {id:'0',label:'0'},{id:'1px',label:'1 px'},{id:'2px',label:'2 px'},
-                {id:'3px',label:'3 px'},{id:'4px',label:'4 px'},{id:'6px',label:'6 px'},
-                {id:'8px',label:'8 px'},{id:'10px',label:'10 px'}
-              ]
-            },
-            {
-              property:'border-bottom-width', name:'下框線', type:'select',
-              options:[
-                {id:'0',label:'0'},{id:'1px',label:'1 px'},{id:'2px',label:'2 px'},
-                {id:'3px',label:'3 px'},{id:'4px',label:'4 px'},{id:'6px',label:'6 px'},
-                {id:'8px',label:'8 px'},{id:'10px',label:'10 px'}
-              ]
-            },
-            {
-              property:'border-left-width', name:'左框線', type:'select',
-              options:[
-                {id:'0',label:'0'},{id:'1px',label:'1 px'},{id:'2px',label:'2 px'},
-                {id:'3px',label:'3 px'},{id:'4px',label:'4 px'},{id:'6px',label:'6 px'},
-                {id:'8px',label:'8 px'},{id:'10px',label:'10 px'}
-              ]
-            },
-            { property:'border-color', name:'框線顏色', type:'color', default:'#d9d9d9' },
-            {
-              property:'border-radius', name:'圓角', type:'select',
-              options:[
-                {id:'0',label:'直角'},
-                {id:'4px',label:'4 px'},
-                {id:'8px',label:'8 px'},
-                {id:'12px',label:'12 px'},
-                {id:'16px',label:'16 px'},
-                {id:'20px',label:'20 px'},
-                {id:'24px',label:'24 px'},
-                {id:'32px',label:'32 px'},
-                {id:'40px',label:'40 px'},
-                {id:'50%',label:'圓形 50%'},
-                {id:'9999px',label:'膠囊形'}
-              ]
-            },
-            {
-              property:'opacity', name:'透明度', type:'select',
-              options:[
-                {id:'1',label:'100%'},
-                {id:'.9',label:'90%'},
-                {id:'.8',label:'80%'},
-                {id:'.7',label:'70%'},
-                {id:'.6',label:'60%'},
-                {id:'.5',label:'50%'},
-                {id:'.4',label:'40%'},
-                {id:'.3',label:'30%'},
-                {id:'.2',label:'20%'},
-                {id:'.1',label:'10%'},
-                {id:'0',label:'0%｜完全透明'}
-              ]
-            },
-            {
-              property:'box-shadow', name:'區塊陰影', type:'select',
-              options:[
-                {id:'none',label:'無陰影'},
-                {id:'0 2px 8px rgba(0,0,0,.08)',label:'極淡陰影'},
-                {id:'0 4px 14px rgba(0,0,0,.12)',label:'柔和陰影'},
-                {id:'0 8px 24px rgba(0,0,0,.16)',label:'中等陰影'},
-                {id:'0 14px 36px rgba(0,0,0,.2)',label:'明顯陰影'},
-                {id:'0 20px 60px rgba(0,0,0,.24)',label:'大型浮起'},
-                {id:'inset 0 0 0 1px rgba(0,0,0,.12)',label:'內框陰影'}
-              ]
-            }
-          ]
-        },
-
-        {
-          name:'Flex／Grid 排版',
-          open:false,
-          properties:[
-            {
-              property:'flex-direction', name:'排列方向', type:'select',
-              options:[
-                {id:'row',label:'橫向'},
-                {id:'column',label:'直向'},
-                {id:'row-reverse',label:'橫向反轉'},
-                {id:'column-reverse',label:'直向反轉'}
-              ]
-            },
-            {
-              property:'flex-wrap', name:'換行方式', type:'select',
-              options:[
-                {id:'nowrap',label:'不換行'},
-                {id:'wrap',label:'自動換行'},
-                {id:'wrap-reverse',label:'反向換行'}
-              ]
-            },
-            {
-              property:'justify-content', name:'主軸對齊', type:'select',
-              options:[
-                {id:'flex-start',label:'靠開頭'},
-                {id:'center',label:'置中'},
-                {id:'flex-end',label:'靠結尾'},
-                {id:'space-between',label:'兩端分散'},
-                {id:'space-around',label:'環繞分散'},
-                {id:'space-evenly',label:'平均分散'}
-              ]
-            },
-            {
-              property:'align-items', name:'交叉軸對齊', type:'select',
-              options:[
-                {id:'stretch',label:'拉伸'},
-                {id:'flex-start',label:'靠開頭'},
-                {id:'center',label:'置中'},
-                {id:'flex-end',label:'靠結尾'},
-                {id:'baseline',label:'文字基準線'}
-              ]
-            },
-            {
-              property:'align-content', name:'多行對齊', type:'select',
-              options:[
-                {id:'stretch',label:'拉伸'},
-                {id:'flex-start',label:'靠開頭'},
-                {id:'center',label:'置中'},
-                {id:'flex-end',label:'靠結尾'},
-                {id:'space-between',label:'兩端分散'},
-                {id:'space-around',label:'環繞分散'}
-              ]
-            },
-            {
-              property:'gap', name:'項目間距', type:'select',
-              options:[
-                {id:'0',label:'0'},
-                {id:'4px',label:'4 px'},
-                {id:'8px',label:'8 px'},
-                {id:'12px',label:'12 px'},
-                {id:'16px',label:'16 px'},
-                {id:'20px',label:'20 px'},
-                {id:'24px',label:'24 px'},
-                {id:'32px',label:'32 px'},
-                {id:'40px',label:'40 px'},
-                {id:'48px',label:'48 px'},
-                {id:'64px',label:'64 px'}
-              ]
-            },
-            {
-              property:'grid-template-columns', name:'網格欄數', type:'select',
-              options:[
-                {id:'none',label:'無'},
-                {id:'1fr',label:'1 欄'},
-                {id:'repeat(2, 1fr)',label:'2 欄'},
-                {id:'repeat(3, 1fr)',label:'3 欄'},
-                {id:'repeat(4, 1fr)',label:'4 欄'},
-                {id:'repeat(5, 1fr)',label:'5 欄'},
-                {id:'repeat(6, 1fr)',label:'6 欄'},
-                {id:'1fr 2fr',label:'1：2'},
-                {id:'2fr 1fr',label:'2：1'},
-                {id:'repeat(auto-fit, minmax(220px, 1fr))',label:'自動響應 220px'}
-              ]
-            },
-            {
-              property:'grid-template-rows', name:'網格列數', type:'select',
-              options:[
-                {id:'none',label:'自動'},
-                {id:'auto',label:'1 列自動'},
-                {id:'repeat(2, auto)',label:'2 列'},
-                {id:'repeat(3, auto)',label:'3 列'},
-                {id:'repeat(4, auto)',label:'4 列'},
-                {id:'repeat(2, 1fr)',label:'2 列等高'},
-                {id:'repeat(3, 1fr)',label:'3 列等高'}
-              ]
-            }
-          ]
-        },
-
-        {
-          name:'圖片／媒體',
-          open:false,
-          properties:[
-            {
-              property:'object-fit', name:'圖片填滿方式', type:'select',
-              options:[
-                {id:'fill',label:'拉伸填滿'},
-                {id:'cover',label:'填滿裁切'},
-                {id:'contain',label:'完整顯示'},
-                {id:'none',label:'原始尺寸'},
-                {id:'scale-down',label:'自動縮小'}
-              ]
-            },
-            {
-              property:'object-position', name:'圖片焦點位置', type:'select',
-              options:[
-                {id:'center center',label:'置中'},
-                {id:'left top',label:'左上'},
-                {id:'center top',label:'上方置中'},
-                {id:'right top',label:'右上'},
-                {id:'left center',label:'左側置中'},
-                {id:'right center',label:'右側置中'},
-                {id:'left bottom',label:'左下'},
-                {id:'center bottom',label:'下方置中'},
-                {id:'right bottom',label:'右下'}
-              ]
-            },
-            {
-              property:'aspect-ratio', name:'圖片比例', type:'select',
-              options:[
-                {id:'auto',label:'自動'},
-                {id:'1 / 1',label:'1：1 正方形'},
-                {id:'4 / 3',label:'4：3'},
-                {id:'3 / 2',label:'3：2'},
-                {id:'16 / 9',label:'16：9'},
-                {id:'9 / 16',label:'9：16 直式'},
-                {id:'21 / 9',label:'21：9 超寬'}
-              ]
-            }
-          ]
-        }
-      ]
-    }
+  mappings.forEach(([id,prop])=>{
+    const ctl=$('#'+id); if(!ctl) return;
+    const val=selected.style[prop]||'';
+    [...ctl.options].some(o=>o.value===val) ? ctl.value=val : ctl.value='';
   });
-
-  function setStatus(msg) { statusText.textContent = msg; }
-
-  // -------- V8.5 IndexedDB 草稿儲存 --------
-  // 舊版把整個網站（含 base64 圖片）塞進 localStorage，約 5~10MB 就可能爆掉。
-  // V8.5 改用 IndexedDB；容量大很多，且發布不會因草稿儲存失敗而中止。
-  const DRAFT_DB_NAME = 'chinon-editor-drafts';
-  const DRAFT_DB_VERSION = 1;
-  const DRAFT_STORE = 'drafts';
-  const DRAFT_KEY = 'chinon-v90-stable-project';
-  const LEGACY_DRAFT_KEY = 'chinon-warm-v72';
-
-  function openDraftDb() {
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DRAFT_DB_NAME, DRAFT_DB_VERSION);
-      req.onupgradeneeded = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains(DRAFT_STORE)) {
-          db.createObjectStore(DRAFT_STORE);
-        }
-      };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error || new Error('IndexedDB 無法開啟'));
-    });
-  }
-
-  async function idbGetDraft() {
-    const db = await openDraftDb();
-    try {
-      return await new Promise((resolve, reject) => {
-        const tx = db.transaction(DRAFT_STORE, 'readonly');
-        const req = tx.objectStore(DRAFT_STORE).get(DRAFT_KEY);
-        req.onsuccess = () => resolve(req.result || null);
-        req.onerror = () => reject(req.error || new Error('讀取草稿失敗'));
-      });
-    } finally {
-      db.close();
-    }
-  }
-
-  async function idbPutDraft(data) {
-    const db = await openDraftDb();
-    try {
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction(DRAFT_STORE, 'readwrite');
-        tx.objectStore(DRAFT_STORE).put(data, DRAFT_KEY);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error || new Error('儲存草稿失敗'));
-        tx.onabort = () => reject(tx.error || new Error('儲存草稿被中止'));
-      });
-    } finally {
-      db.close();
-    }
-  }
-
-  function baselineHashesObject() {
-    const out = {};
-    for (const [file, base] of baselineByFile) out[file] = base.sourceHash;
-    return out;
-  }
-
-  function sameBaselineHashes(saved) {
-    if (!saved || typeof saved !== 'object') return false;
-    const current = baselineHashesObject();
-    const files = SITE_PAGES.map(x => x.file);
-    return files.every(file => saved[file] && saved[file] === current[file]);
-  }
-
-  async function saveDraft({silent=false}={}) {
-    const data = {
-      version: STABLE_DRAFT_VERSION,
-      projectData: editor.getProjectData(),
-      baselineHashes: baselineHashesObject()
-    };
-    await idbPutDraft(data);
-    editor.clearDirtyCount();
-    if (!silent) {
-      setStatus('V9 草稿已儲存在這台電腦。正式網站尚未變更。');
-    }
-    return true;
-  }
-
-  async function restoreDraft() {
-    const draft = await idbGetDraft();
-    if (!draft || draft.version !== STABLE_DRAFT_VERSION || !draft.projectData) return false;
-    if (!sameBaselineHashes(draft.baselineHashes)) {
-      setStatus('偵測到正式網站已更新，舊草稿不自動載入；已改用最新正式網站。');
-      return false;
-    }
-    editor.loadProjectData(draft.projectData);
-    editor.clearDirtyCount();
-    return true;
-  }
-
-  async function migrateLegacyDraftIfAvailable() {
-    const raw = localStorage.getItem(LEGACY_DRAFT_KEY);
-    if (!raw) return false;
-
-    try {
-      const data = JSON.parse(raw);
-      editor.loadProjectData(data);
-      await saveDraft({silent:true});
-      // 成功搬到 IndexedDB 後才刪舊大型草稿，釋放 localStorage。
-      localStorage.removeItem(LEGACY_DRAFT_KEY);
-      localStorage.removeItem(INIT_KEY);
-      return true;
-    } catch (error) {
-      console.warn('舊草稿搬移失敗', error);
-      return false;
-    }
-  }
-
-  let safeExportInProgress = false;
-  let draftSaveTimer = null;
-  function scheduleDraftSave() {
-    if (safeExportInProgress) return;
-    clearTimeout(draftSaveTimer);
-    draftSaveTimer = setTimeout(() => {
-      saveDraft({silent:true}).catch(error => {
-        console.warn('自動儲存草稿失敗', error);
-        setStatus(`自動儲存失敗：${error.message}。可先下載備份 ZIP。`);
-      });
-    }, 1000);
-  }
-
-  async function importBackupFile(file) {
-    if (!file) return;
-
-    let projectData = null;
-
-    if (/\.zip$/i.test(file.name) || file.type === 'application/zip' || file.type === 'application/x-zip-compressed') {
-      const zip = await JSZip.loadAsync(file);
-      const backup = zip.file('editor-backup.json');
-      if (!backup) throw new Error('ZIP 裡找不到 editor-backup.json');
-      projectData = JSON.parse(await backup.async('text'));
-    } else {
-      projectData = JSON.parse(await file.text());
-    }
-
-    if (!projectData || typeof projectData !== 'object') {
-      throw new Error('備份內容格式不正確');
-    }
-
-    const wrapper = projectData;
-    if (wrapper.version !== STABLE_DRAFT_VERSION || !wrapper.projectData) {
-      throw new Error('這不是 V9 穩定模式備份。舊版整站備份為避免跑版，不允許直接匯入。');
-    }
-    if (!sameBaselineHashes(wrapper.baselineHashes)) {
-      throw new Error('這份草稿的正式網站基準與目前網站不同。請先重新載入正式網站。');
-    }
-
-    editor.loadProjectData(wrapper.projectData);
-    await saveDraft({silent:true});
-    refreshPages();
-    editor.refresh();
-    setStatus('V9 草稿已匯入並儲存。');
-  }
-
-
-  // -------- V8.1 顏色色塊選擇 --------
-  function enhanceColorPickers() {
-    requestAnimationFrame(() => {
-      document.querySelectorAll('.gjs-field-color input[type="color"], .gjs-field-color input').forEach(input => {
-        input.setAttribute('title', '點色塊直接選顏色');
-      });
-    });
-  }
-
-
-  // -------- V7.7 右側功能列繁體中文化 --------
-  const PANEL_ZH = new Map([
-    ['Classes', '類別'],
-    ['Class', '類別'],
-    ['Selected:', '已選取：'],
-    ['Selected', '已選取'],
-    ['Select an element before using Style Manager', '請先選取一個元素，再調整樣式'],
-    ['Select an element before using the Style Manager', '請先選取一個元素，再調整樣式'],
-
-    ['Position', '定位方式'],
-    ['Top', '上'],
-    ['Right', '右'],
-    ['Bottom', '下'],
-    ['Left', '左'],
-    ['Z index', '圖層順序'],
-    ['Z-index', '圖層順序'],
-    ['Width', '寬度'],
-    ['Height', '高度'],
-    ['Min width', '最小寬度'],
-    ['Min height', '最小高度'],
-    ['Max width', '最大寬度'],
-    ['Max height', '最大高度'],
-    ['Display', '顯示方式'],
-    ['Overflow', '超出內容'],
-    ['Transform', '變形'],
-
-    ['Font family', '字型'],
-    ['Font size', '字體大小'],
-    ['Font weight', '粗細'],
-    ['Font style', '斜體'],
-    ['Text decoration', '文字裝飾'],
-    ['Line height', '行高'],
-    ['Letter spacing', '字距'],
-    ['Color', '文字顏色'],
-    ['Text align', '對齊'],
-    ['Text shadow', '文字陰影'],
-
-    ['Margin top', '上外距'],
-    ['Margin right', '右外距'],
-    ['Margin bottom', '下外距'],
-    ['Margin left', '左外距'],
-    ['Padding top', '上內距'],
-    ['Padding right', '右內距'],
-    ['Padding bottom', '下內距'],
-    ['Padding left', '左內距'],
-
-    ['Background color', '背景顏色'],
-    ['Background image', '背景圖片'],
-    ['Background position', '背景位置'],
-    ['Background size', '背景尺寸'],
-    ['Background repeat', '背景重複'],
-    ['Border top width', '上框線寬度'],
-    ['Border right width', '右框線寬度'],
-    ['Border bottom width', '下框線寬度'],
-    ['Border left width', '左框線寬度'],
-    ['Border style', '框線樣式'],
-    ['Border color', '框線顏色'],
-    ['Border radius', '圓角'],
-    ['Opacity', '透明度'],
-    ['Box shadow', '區塊陰影'],
-
-    ['Flex direction', '排列方向'],
-    ['Flex wrap', '換行方式'],
-    ['Justify content', '主軸對齊'],
-    ['Align items', '交叉軸對齊'],
-    ['Align content', '多行對齊'],
-    ['Gap', '項目間距'],
-    ['Grid template columns', '網格欄設定'],
-    ['Grid template rows', '網格列設定'],
-
-    ['Device', '裝置'],
-    ['Desktop', '桌機'],
-    ['Tablet', '平板'],
-    ['Mobile', '手機']
-  ]);
-
-  const OPTION_ZH = new Map([
-    ['static', '靜態'],
-    ['relative', '相對'],
-    ['absolute', '絕對'],
-    ['fixed', '固定'],
-    ['sticky', '黏著'],
-
-    ['block', '區塊'],
-    ['inline', '行內'],
-    ['inline-block', '行內區塊'],
-    ['flex', '彈性排列'],
-    ['inline-flex', '行內彈性排列'],
-    ['grid', '網格排列'],
-    ['inline-grid', '行內網格排列'],
-    ['none', '無／隱藏'],
-
-    ['visible', '顯示'],
-    ['hidden', '隱藏'],
-    ['scroll', '捲動'],
-    ['auto', '自動'],
-
-    ['normal', '一般'],
-    ['bold', '粗體'],
-    ['bolder', '較粗'],
-    ['lighter', '較細'],
-    ['italic', '斜體'],
-    ['oblique', '傾斜'],
-    ['underline', '底線'],
-    ['overline', '上線'],
-    ['line-through', '刪除線'],
-
-    ['left', '靠左'],
-    ['center', '置中'],
-    ['right', '靠右'],
-    ['justify', '左右對齊'],
-
-    ['repeat', '重複'],
-    ['no-repeat', '不重複'],
-    ['repeat-x', '水平重複'],
-    ['repeat-y', '垂直重複'],
-    ['cover', '填滿裁切'],
-    ['contain', '完整顯示'],
-
-    ['solid', '實線'],
-    ['dashed', '虛線'],
-    ['dotted', '點線'],
-    ['double', '雙線'],
-
-    ['row', '橫向'],
-    ['row-reverse', '橫向反轉'],
-    ['column', '直向'],
-    ['column-reverse', '直向反轉'],
-    ['nowrap', '不換行'],
-    ['wrap', '換行'],
-    ['wrap-reverse', '反向換行'],
-
-    ['flex-start', '靠開頭'],
-    ['flex-end', '靠結尾'],
-    ['space-between', '兩端分散'],
-    ['space-around', '環繞分散'],
-    ['space-evenly', '平均分散'],
-    ['stretch', '拉伸'],
-    ['baseline', '基準線']
-  ]);
-
-  function translatePanelText(root=document) {
-    const scopes = [
-      ...root.querySelectorAll?.('.gjs-sm-sectors, .gjs-clm-tags, .gjs-sm-sector, .gjs-sm-property, .gjs-field, .gjs-field-select') || []
-    ];
-
-    const targets = scopes.length ? scopes : [root];
-
-    targets.forEach(scope => {
-      const walker = document.createTreeWalker(
-        scope,
-        NodeFilter.SHOW_TEXT,
-        {
-          acceptNode(node) {
-            const parent = node.parentElement;
-            if (!parent) return NodeFilter.FILTER_REJECT;
-            if (['SCRIPT','STYLE','TEXTAREA'].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
-            return NodeFilter.FILTER_ACCEPT;
-          }
-        }
-      );
-
-      const textNodes = [];
-      let node;
-      while ((node = walker.nextNode())) textNodes.push(node);
-
-      textNodes.forEach(textNode => {
-        const raw = textNode.nodeValue || '';
-        const trimmed = raw.trim();
-        if (!trimmed) return;
-
-        let translated = PANEL_ZH.get(trimmed);
-
-        if (!translated && trimmed.startsWith('Selected:')) {
-          translated = trimmed.replace(/^Selected:/, '已選取：');
-        }
-
-        if (translated) {
-          textNode.nodeValue = raw.replace(trimmed, translated);
-        }
-      });
-
-      scope.querySelectorAll?.('option').forEach(option => {
-        const raw = (option.textContent || '').trim();
-        const value = (option.value || '').trim();
-        const translated = OPTION_ZH.get(raw) || OPTION_ZH.get(value);
-        if (translated) option.textContent = translated;
-      });
-
-      scope.querySelectorAll?.('input[placeholder]').forEach(input => {
-        const p = input.getAttribute('placeholder');
-        if (p && PANEL_ZH.has(p)) input.setAttribute('placeholder', PANEL_ZH.get(p));
-      });
-
-      scope.querySelectorAll?.('[title]').forEach(el => {
-        const t = el.getAttribute('title');
-        if (t && PANEL_ZH.has(t)) el.setAttribute('title', PANEL_ZH.get(t));
-      });
-    });
-  }
-
-  let panelZhObserver = null;
-
-  function enableChineseRightPanel() {
-    translatePanelText(document);
-
-    if (panelZhObserver) return;
-
-    panelZhObserver = new MutationObserver(() => {
-      requestAnimationFrame(() => translatePanelText(document));
-    });
-
-    panelZhObserver.observe(document.body, {
-      childList: true,
-      subtree: true,
-      characterData: true
-    });
-  }
-
-
-  let lastSiteCss = '';
-
-  function siteRootUrl() {
-    return new URL('../', window.location.href);
-  }
-
-  function toSiteRootAssetUrl(value) {
-    if (!value) return value;
-    const raw = String(value).trim();
-
-    // 完整網址、data/blob/hash 不碰。
-    if (/^(?:https?:|data:|blob:|mailto:|tel:|#|\/\/)/i.test(raw)) return raw;
-
-    // 只把本站 assets 路徑固定到網站根目錄，避免 /editor/assets/。
-    const cleaned = raw.replace(/^\.\//, '');
-    if (cleaned.startsWith('assets/')) return '/' + cleaned;
-    if (cleaned.startsWith('../assets/')) return '/' + cleaned.replace(/^\.\.\//, '');
-
-    return raw;
-  }
-
-  function normalizeHtmlAssetPaths(doc) {
-    if (!doc) return;
-
-    doc.querySelectorAll('[src]').forEach(el => {
-      const v = el.getAttribute('src');
-      const n = toSiteRootAssetUrl(v);
-      if (n !== v) el.setAttribute('src', n);
-    });
-
-    doc.querySelectorAll('[poster]').forEach(el => {
-      const v = el.getAttribute('poster');
-      const n = toSiteRootAssetUrl(v);
-      if (n !== v) el.setAttribute('poster', n);
-    });
-
-    doc.querySelectorAll('[srcset]').forEach(el => {
-      const srcset = el.getAttribute('srcset') || '';
-      const normalized = srcset.split(',').map(part => {
-        const bits = part.trim().split(/\s+/);
-        if (!bits[0]) return part;
-        bits[0] = toSiteRootAssetUrl(bits[0]);
-        return bits.join(' ');
-      }).join(', ');
-      el.setAttribute('srcset', normalized);
-    });
-
-    doc.querySelectorAll('[style]').forEach(el => {
-      const style = el.getAttribute('style') || '';
-      const normalized = style.replace(
-        /url\(\s*(['"]?)(?:\.\/|\.\.\/)?(assets\/[^)'"]+)\1\s*\)/gi,
-        (_m, quote, path) => `url(${quote}/${path}${quote})`
-      );
-      if (normalized !== style) el.setAttribute('style', normalized);
-    });
-  }
-
-  function normalizeCssAssetPaths(cssText) {
-    return String(cssText || '').replace(
-      /url\(\s*(['"]?)(?:\.\/|\.\.\/)?(assets\/[^)'"]+)\1\s*\)/gi,
-      (_m, quote, path) => `url(${quote}/${path}${quote})`
-    );
-  }
-
-  function applyRootVariables(cssText) {
-    const doc = editor.Canvas.getDocument?.();
-    if (!doc?.documentElement) return;
-
-    // GrapesJS 的 CSS parser 對 :root custom properties 不一定穩定。
-    // 直接把正式網站 :root 變數寫到 Canvas 的 documentElement，確保
-    // var(--olive) 等在編輯器內與正式網站一致。
-    const match = String(cssText || '').match(/:root\s*\{([\s\S]*?)\}/i);
-    if (!match) return;
-
-    const declarations = match[1].split(';');
-    for (const declaration of declarations) {
-      const idx = declaration.indexOf(':');
-      if (idx < 0) continue;
-      const name = declaration.slice(0, idx).trim();
-      const value = declaration.slice(idx + 1).trim();
-      if (name.startsWith('--') && value) {
-        doc.documentElement.style.setProperty(name, value);
-      }
-    }
-  }
-
-  function ensureCanvasEnvironment() {
-    const doc = editor.Canvas.getDocument?.();
-    if (!doc || !doc.head) return;
-
-    let base = doc.head.querySelector('base[data-chinon-editor-base]');
-    if (!base) {
-      base = doc.createElement('base');
-      base.setAttribute('data-chinon-editor-base', '1');
-      doc.head.insertBefore(base, doc.head.firstChild);
-    }
-    base.href = siteRootUrl().href;
-
-    // V8.9：正式網站 CSS 不再交給 GrapesJS parser 重建。
-    // 直接讓 Canvas iframe 載入與官網「同一份 styles.css」，
-    // 預覽的字型、大小、media query、:root 變數與正式站一致。
-    let liveCss = doc.head.querySelector('link[data-chinon-live-css]');
-    if (!liveCss) {
-      liveCss = doc.createElement('link');
-      liveCss.rel = 'stylesheet';
-      liveCss.setAttribute('data-chinon-live-css', '1');
-      doc.head.appendChild(liveCss);
-    }
-    liveCss.href = new URL(`styles.css?editorPreview=${Date.now()}`, siteRootUrl()).href;
-
-    if (lastSiteCss) applyRootVariables(lastSiteCss);
-  }
-
-  // 保留舊函式名稱，讓既有程式碼仍可呼叫。
-  function ensureCanvasBase() {
-    ensureCanvasEnvironment();
-  }
-
-
-  function selectedOrWarn() {
-    const c = editor.getSelected();
-    if (!c) {
-      alert('請先點選一個文字、圖片、按鈕或區塊。');
-      return null;
-    }
-    return c;
-  }
-
-  function currentPage() { return editor.Pages.getSelected(); }
-
-  function currentRoot() {
-    return currentPage()?.getMainComponent?.() || editor.getWrapper();
-  }
-
-  function selectedContainerOrRoot() {
-    const c = editor.getSelected();
-    if (c) {
-      const tag = String(c.get('tagName') || '').toLowerCase();
-      if (['body','main','section','div','article','header','footer','nav'].includes(tag)) return c;
-      if (c.parent?.()) return c.parent();
-    }
-    return currentRoot();
-  }
-
-  function append(def, msg) {
-    const target = selectedContainerOrRoot();
-    const added = target.append(def);
-    const c = Array.isArray(added) ? added[0] : added;
-    if (c) editor.select(c);
-    setStatus(msg);
-    return c;
-  }
-
-  function sanitizeSlug(value) {
-    const v = String(value || '')
-      .trim()
-      .toLowerCase()
-      .replace(/\.html$/i, '')
-      .replace(/[^a-z0-9\u4e00-\u9fff_-]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-    return v || `page-${Date.now()}`;
-  }
-
-  function pageFile(page) {
-    return page?.get('chinonFile') || 'index.html';
-  }
-
-  function refreshPages() {
-    const sel = $('#pageSelect');
-    sel.innerHTML = '';
-    editor.Pages.getAll().forEach((p) => {
-      const opt = document.createElement('option');
-      opt.value = pageFile(p);
-      opt.textContent = p.get('name') || pageFile(p);
-      sel.appendChild(opt);
-    });
-    sel.value = pageFile(currentPage());
-  }
-
-  function ensureMoveSnapshot(c) {
-    const attrs = c.getAttributes?.() || {};
-    if (attrs[SNAPSHOT_ATTR]) return;
-    const s = c.getStyle?.() || {};
-    const snap = {};
-    ['position','top','right','bottom','left','z-index','transform'].forEach(k => {
-      snap[k] = Object.prototype.hasOwnProperty.call(s, k) ? s[k] : null;
-    });
-    c.addAttributes({ [SNAPSHOT_ATTR]: encodeURIComponent(JSON.stringify(snap)) });
-  }
-
-  function restoreMove() {
-    const c = selectedOrWarn();
-    if (!c) return;
-    const attrs = c.getAttributes?.() || {};
-    if (!attrs[SNAPSHOT_ATTR]) {
-      setStatus('這個元件沒有移動前的紀錄。');
-      return;
-    }
-    const snap = JSON.parse(decodeURIComponent(attrs[SNAPSHOT_ATTR]));
-    const style = { ...(c.getStyle?.() || {}) };
-    Object.entries(snap).forEach(([k,v]) => {
-      if (v === null || v === '') delete style[k];
-      else style[k] = v;
-    });
-    c.setStyle(style);
-    c.removeAttributes(SNAPSHOT_ATTR);
-    setStatus('已恢復第一次移動前的位置。');
-  }
-
-  function restoreComponentPositionFromSnapshot(c) {
-    const attrs = c.getAttributes?.() || {};
-    if (!attrs[SNAPSHOT_ATTR]) return false;
-
-    let snap;
-    try {
-      snap = JSON.parse(decodeURIComponent(attrs[SNAPSHOT_ATTR]));
-    } catch {
-      return false;
-    }
-
-    const style = { ...(c.getStyle?.() || {}) };
-    ['position','top','right','bottom','left','transform'].forEach(k => {
-      const v = snap[k];
-      if (v === null || v === '') delete style[k];
-      else style[k] = v;
-    });
-
-    c.setStyle(style);
-    c.removeAttributes(SNAPSHOT_ATTR);
-    return true;
-  }
-
-  function walkComponents(component, fn) {
-    if (!component) return;
-    fn(component);
-    const children = component.components?.();
-    if (!children) return;
-    const list = children.models || children;
-    if (typeof list.forEach === 'function') {
-      list.forEach(child => walkComponents(child, fn));
-    }
-  }
-
-  function resetCurrentPagePositions() {
-    const page = currentPage();
-    const root = page?.getMainComponent?.();
-    if (!root) {
-      setStatus('找不到目前頁面。');
-      return;
-    }
-
-    if (!confirm(
-      '這會一次恢復「本頁所有曾經用自由移動拖過的元件」到第一次拖動前的位置。\\n\\n' +
-      '文字、字型、大小、顏色、圖片都不會重置。\\n\\n確定繼續？'
-    )) return;
-
-    let count = 0;
-    walkComponents(root, c => {
-      if (restoreComponentPositionFromSnapshot(c)) count += 1;
-    });
-
-    editor.refresh();
-    scheduleDraftSave();
-
-    if (count > 0) {
-      setStatus(`本頁已恢復 ${count} 個自由移動元件的位置。確認正常後再穩定發布。`);
-    } else {
-      setStatus('找不到可恢復的移動紀錄。若之前已重新載入正式網站，需從 GitHub History 還原上一版。');
-    }
-  }
-
-  // -------- precise free move --------
-  let moveState = { cleanup: null, component: null, oldDraggable: null };
-
-  function stopMove(msg='') {
-    if (moveState.cleanup) try { moveState.cleanup(); } catch {}
-    if (moveState.component) {
-      try { moveState.component.set('draggable', moveState.oldDraggable); } catch {}
-    }
-    moveState = { cleanup:null, component:null, oldDraggable:null };
-    $('#btnPixelMove').classList.remove('mode-active');
-    if (msg) setStatus(msg);
-  }
-
-  function numberPx(v) {
-    const n = parseFloat(v);
-    return Number.isFinite(n) ? n : 0;
-  }
-
-  function armMove() {
-    const c = selectedOrWarn();
-    if (!c) return;
-
-    stopMove();
-
-    const el = c.getEl?.();
-    const doc = editor.Canvas.getDocument?.();
-    if (!el || !doc) return;
-
-    const canvasWidth = doc.documentElement?.clientWidth || 1;
-    const rect = el.getBoundingClientRect();
-    const childCollection = c.components?.();
-    const childCount = childCollection?.length || childCollection?.models?.length || 0;
-    const tag = String(c.get('tagName') || '').toLowerCase();
-    const isLargeStructure =
-      childCount > 0 &&
-      (rect.width >= canvasWidth * 0.68 || ['header','nav','main','section','footer'].includes(tag));
-
-    if (isLargeStructure) {
-      const ok = confirm(
-        '⚠️ 你現在選到大型版面容器。\n\n' +
-        '拖動它會連同裡面的文字、圖片、按鈕一起移位，正式網站也會跟著跑掉。\n\n' +
-        '確定要移動整個區塊嗎？'
-      );
-      if (!ok) {
-        setStatus('已取消自由移動。請改選裡面的文字、圖片或較小元件。');
-        return;
-      }
-    }
-
-    ensureMoveSnapshot(c);
-
-    const oldDraggable = c.get('draggable');
-    c.set('draggable', false);
-    moveState.component = c;
-    moveState.oldDraggable = oldDraggable;
-    $('#btnPixelMove').classList.add('mode-active');
-    setStatus('自由移動已準備：再直接抓住選取的物件拖到你要的位置。');
-
-    let dragging = false;
-    let sx=0, sy=0, bl=0, bt=0, pos='static';
-
-    const down = (ev) => {
-      if (!(ev.target === el || el.contains(ev.target))) return;
-      ev.preventDefault(); ev.stopPropagation();
-      dragging = true;
-      sx = ev.clientX; sy = ev.clientY;
-      const ms = c.getStyle?.() || {};
-      const cs = doc.defaultView.getComputedStyle(el);
-      pos = ms.position || cs.position || 'static';
-      bl = numberPx(ms.left || cs.left);
-      bt = numberPx(ms.top || cs.top);
-      el.style.position = pos !== 'static' ? pos : 'relative';
-      el.style.cursor = 'grabbing';
-      el.style.userSelect = 'none';
-    };
-
-    const move = (ev) => {
-      if (!dragging) return;
-      ev.preventDefault(); ev.stopPropagation();
-      const left = Math.round(bl + ev.clientX - sx);
-      const top = Math.round(bt + ev.clientY - sy);
-      el.style.left = `${left}px`;
-      el.style.top = `${top}px`;
-      setStatus(`位置：Left ${left}px / Top ${top}px`);
-    };
-
-    const up = (ev) => {
-      if (!dragging) return;
-      ev.preventDefault(); ev.stopPropagation();
-      dragging = false;
-      const left = Math.round(numberPx(el.style.left));
-      const top = Math.round(numberPx(el.style.top));
-      c.addStyle({
-        position: pos !== 'static' ? pos : 'relative',
-        left: `${left}px`,
-        top: `${top}px`
-      });
-      el.style.cursor = '';
-      el.style.userSelect = '';
-      stopMove(`已移動到 Left ${left}px / Top ${top}px。`);
-    };
-
-    doc.addEventListener('pointerdown', down, true);
-    doc.addEventListener('pointermove', move, true);
-    doc.addEventListener('pointerup', up, true);
-    doc.addEventListener('pointercancel', up, true);
-
-    moveState.cleanup = () => {
-      doc.removeEventListener('pointerdown', down, true);
-      doc.removeEventListener('pointermove', move, true);
-      doc.removeEventListener('pointerup', up, true);
-      doc.removeEventListener('pointercancel', up, true);
-      el.style.cursor=''; el.style.userSelect='';
-    };
-  }
-
-  function changeLayer(delta, top=false) {
-    const c = selectedOrWarn(); if (!c) return;
-    ensureMoveSnapshot(c);
-    const s = c.getStyle?.() || {};
-    let z = parseInt(s['z-index'], 10);
-    if (!Number.isFinite(z)) z = 1;
-    z = top ? 999 : Math.max(0, z + delta);
-    c.addStyle({ position: s.position || 'relative', 'z-index': String(z) });
-    setStatus(`圖層 z-index = ${z}`);
-  }
-
-  // -------- add components --------
-  function addText() {
-    append({
-      tagName:'p',
-      content:'雙擊這裡修改文字',
-      style:{fontSize:'18px',lineHeight:'1.8',margin:'16px 0'}
-    }, '已新增文字。雙擊即可修改。');
-  }
-
-  function addHeading() {
-    append({
-      tagName:'h2',
-      content:'新的標題',
-      style:{fontSize:'42px',lineHeight:'1.2',margin:'20px 0'}
-    }, '已新增標題。');
-  }
-
-  function addButton() {
-    append({
-      tagName:'a',
-      attributes:{href:'#'},
-      content:'按鈕文字',
-      style:{
-        display:'inline-flex',padding:'12px 22px',borderRadius:'999px',
-        background:'#163b29',color:'#fff',textDecoration:'none',fontWeight:'700'
-      }
-    }, '已新增按鈕。可用「超連結」修改網址。');
-  }
-
-  function addLinkText() {
-    append({
-      tagName:'a',
-      attributes:{href:'#'},
-      content:'連結文字',
-      style:{color:'#165bd8',textDecoration:'underline',fontSize:'18px'}
-    }, '已新增連結文字。');
-  }
-
-  function addSection() {
-    append({
-      tagName:'section',
-      style:{
-        position:'relative',minHeight:'280px',padding:'48px',margin:'18px 0',
-        background:'#fffdf8',border:'1px solid rgba(22,59,41,.14)',borderRadius:'20px'
-      },
-      components:[
-        {tagName:'h2',content:'新的區塊',style:{margin:'0 0 10px',fontSize:'36px'}},
-        {tagName:'p',content:'雙擊這裡修改內容。',style:{margin:'0'}}
-      ]
-    }, '已新增區塊。');
-  }
-
-  function addColumns(count) {
-    const comps = [];
-    for (let i=0;i<count;i++) {
-      comps.push({
-        tagName:'div',
-        style:{padding:'28px',background:'#fffdf8',minHeight:'180px',border:'1px solid rgba(22,59,41,.10)'},
-        components:[{tagName:'p',content:`第 ${i+1} 欄內容`}]
-      });
-    }
-    append({
-      tagName:'section',
-      style:{
-        display:'grid',
-        gridTemplateColumns:`repeat(${count}, minmax(0,1fr))`,
-        gap:'20px',padding:'20px',margin:'18px 0'
-      },
-      components:comps
-    }, `已新增 ${count} 欄版面。`);
-  }
-
-  function addDivider() {
-    append({tagName:'hr',style:{border:'0',borderTop:'1px solid rgba(22,59,41,.2)',margin:'32px 0'}}, '已新增分隔線。');
-  }
-
-  function addSpacer() {
-    append({tagName:'div',style:{height:'80px'}}, '已新增 80px 留白。');
-  }
-
-  function addShape() {
-    append({
-      tagName:'div',
-      style:{
-        width:'160px',height:'160px',background:'#d9d1b8',borderRadius:'24px',margin:'18px 0'
-      }
-    }, '已新增圖形。右側可改顏色、大小、圓角。');
-  }
-
-  function addVideo() {
-    const url = prompt('貼上 YouTube 網址：');
-    if (!url) return;
-    let id = '';
-    try {
-      const u = new URL(url);
-      if (u.hostname.includes('youtu.be')) id = u.pathname.slice(1);
-      else id = u.searchParams.get('v') || '';
-    } catch {}
-    if (!id) {
-      alert('目前支援 YouTube 網址。');
-      return;
-    }
-    append({
-      tagName:'iframe',
-      attributes:{
-        src:`https://www.youtube.com/embed/${id}`,
-        allow:'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture',
-        allowfullscreen:'true'
-      },
-      style:{width:'640px',maxWidth:'100%',height:'360px',border:'0',margin:'18px 0'}
-    }, '已新增 YouTube 影片。');
-  }
-
-  function fileToDataUrl(file, cb) {
-    const r = new FileReader();
-    r.onload = () => cb(r.result);
-    r.readAsDataURL(file);
-  }
-
-  function addImageFile(file) {
-    if (!file) return;
-    fileToDataUrl(file, (src) => {
-      append({
-        tagName:'img',
-        attributes:{src,alt:file.name.replace(/\.[^.]+$/,'')},
-        style:{display:'block',width:'420px',maxWidth:'100%',height:'auto',margin:'18px 0',objectFit:'cover'}
-      }, `已加入圖片：${file.name}`);
-    });
-  }
-
-  function replaceImageFile(file) {
-    const c = selectedOrWarn(); if (!c || !file) return;
-    const tag = String(c.get('tagName') || '').toLowerCase();
-    if (tag !== 'img') {
-      alert('請先選取一張圖片。');
-      return;
-    }
-    fileToDataUrl(file, (src) => {
-      c.addAttributes({src,alt:file.name.replace(/\.[^.]+$/,'')});
-      setStatus('圖片已更換。');
-    });
-  }
-
-  function setBackgroundImageFile(file) {
-    const c = selectedOrWarn(); if (!c || !file) return;
-    fileToDataUrl(file, (src) => {
-      c.addStyle({
-        backgroundImage:`url("${src}")`,
-        backgroundSize:'cover',
-        backgroundPosition:'center',
-        backgroundRepeat:'no-repeat'
-      });
-      setStatus('背景圖片已套用。');
-    });
-  }
-
-
-  // -------- V9 圖片 / 背景快速對齊 --------
-  function alignSelectedImage(mode) {
-    const c = selectedOrWarn();
-    if (!c) return;
-
-    const tag = String(c.get('tagName') || '').toLowerCase();
-    if (tag !== 'img') {
-      alert('請先點選一張圖片。');
-      return;
-    }
-
-    const patch = {
-      display:'block',
-      'object-position':'center center'
-    };
-
-    if (mode === 'left') {
-      patch['margin-left'] = '0';
-      patch['margin-right'] = 'auto';
-    } else if (mode === 'right') {
-      patch['margin-left'] = 'auto';
-      patch['margin-right'] = '0';
-    } else {
-      patch['margin-left'] = 'auto';
-      patch['margin-right'] = 'auto';
-    }
-
-    c.addStyle(patch);
-    setStatus(mode === 'center' ? '圖片已設定為置中。' : mode === 'left' ? '圖片已設定為靠左。' : '圖片已設定為靠右。');
-  }
-
-  function centerSelectedBackground() {
-    const c = selectedOrWarn();
-    if (!c) return;
-    c.addStyle({
-      'background-position':'center center',
-      'background-repeat':'no-repeat'
-    });
-    setStatus('背景圖片已設定為正中央對齊。');
-  }
-
-  // -------- links --------
-  function selectedLinkTarget() {
-    const c = selectedOrWarn();
-    if (!c) return null;
-    if (String(c.get('tagName') || '').toLowerCase() === 'a') return c;
-    const p = c.parent?.();
-    if (p && String(p.get('tagName') || '').toLowerCase() === 'a') return p;
-    return c;
-  }
-
-  function openLinkDialog() {
-    const c = selectedLinkTarget();
-    if (!c) return;
-    const attrs = c.getAttributes?.() || {};
-    $('#linkUrl').value = attrs.href || '';
-    $('#linkBlank').checked = attrs.target === '_blank';
-    $('#linkDialog').showModal();
-  }
-
-  function applyLink() {
-    let c = selectedLinkTarget();
-    if (!c) return;
-    const href = $('#linkUrl').value.trim() || '#';
-    const target = $('#linkBlank').checked ? '_blank' : null;
-    const tag = String(c.get('tagName') || '').toLowerCase();
-
-    if (tag === 'a') {
-      const attrs = {...(c.getAttributes?.()||{}), href};
-      if (target) attrs.target = target; else delete attrs.target;
-      c.setAttributes(attrs);
-      setStatus('連結已更新。');
-      return;
-    }
-
-    const parent = c.parent?.();
-    if (!parent) return;
-    const collection = parent.components();
-    const index = collection.models.indexOf(c);
-    const inner = editor.getHtml({component:c});
-    c.remove();
-    const html = `<a href="${href.replaceAll('"','&quot;')}"${target ? ' target="_blank" rel="noopener"' : ''} style="display:inline-block;color:inherit;text-decoration:inherit">${inner}</a>`;
-    const added = collection.add(html, {at:index});
-    editor.select(Array.isArray(added) ? added[0] : added);
-    setStatus('已把選取物件設定成超連結。');
-  }
-
-  function unlinkSelected() {
-    const c0 = selectedOrWarn(); if (!c0) return;
-    let c = c0;
-    if (String(c.get('tagName')||'').toLowerCase() !== 'a') {
-      const p = c.parent?.();
-      if (!p || String(p.get('tagName')||'').toLowerCase() !== 'a') {
-        setStatus('目前選取物件沒有外層超連結。');
-        return;
-      }
-      c = p;
-    }
-    const parent = c.parent?.();
-    if (!parent) return;
-    const collection = parent.components();
-    const index = collection.models.indexOf(c);
-    const inner = c.components().map(ch => editor.getHtml({component:ch})).join('') || c.get('content') || '';
-    c.remove();
-    const added = collection.add(inner, {at:index});
-    const first = Array.isArray(added) ? added[0] : added;
-    if (first) editor.select(first);
-    setStatus('已移除超連結。');
-  }
-
-  // -------- duplicate/delete/resize --------
-  function duplicateSelected() {
-    const c = selectedOrWarn(); if (!c) return;
-    const p = c.parent?.(); if (!p) return;
-    const col = p.components();
-    const idx = col.models.indexOf(c);
-    const clone = c.clone();
-    col.add(clone, {at:idx+1});
-    editor.select(clone);
-    setStatus('已複製元件。');
-  }
-
-  function deleteSelected() {
-    const c = selectedOrWarn(); if (!c) return;
-    if (confirm('刪除目前選取的元件？')) {
-      c.remove();
-      setStatus('已刪除元件。');
-    }
-  }
-
-  // -------- V7.3 Canva-like text resize --------
-  const TEXT_TAGS = new Set([
-    'span','p','h1','h2','h3','h4','h5','h6',
-    'a','button','strong','em','small','label','li'
-  ]);
-
-  let textResizeState = {
-    component: null,
-    overlay: null,
-    cleanup: null
+  try{
+    $('#textColor').value=rgbToHex(cs.color);
+    $('#backgroundColor').value=cs.backgroundColor==='rgba(0, 0, 0, 0)'?'#ffffff':rgbToHex(cs.backgroundColor);
+  }catch{}
+  $('#linkUrl').value=selected.closest('a')?.getAttribute('href')||'';
+}
+function rgbToHex(rgb){
+  const m=String(rgb).match(/\d+/g);
+  if(!m||m.length<3) return '#222222';
+  return '#'+m.slice(0,3).map(x=>(+x).toString(16).padStart(2,'0')).join('');
+}
+function applyStyle(prop,value){
+  if(!selected || value==='') return;
+  pushUndo();
+  selected.style[prop]=value;
+  markDirty();
+  updateHandle();
+}
+function bindSelect(id,prop){ $('#'+id).addEventListener('change',e=>applyStyle(prop,e.target.value)); }
+
+/* ---------- resize ---------- */
+function startResize(e){
+  if(!selected) return;
+  e.preventDefault(); e.stopPropagation();
+  pushUndo();
+  const r=selected.getBoundingClientRect();
+  const cs=iframe.contentWindow.getComputedStyle(selected);
+  resizeState={
+    startX:e.clientX,startW:r.width,startH:r.height,
+    startFont:parseFloat(cs.fontSize)||16,
+    isText:isTextElement(selected),isImage:selected.tagName==='IMG'
   };
-
-  function textResizeTarget(component) {
-    if (!component) return null;
-
-    let target = component;
-    let tag = String(target.get('tagName') || '').toLowerCase();
-
-    // 如果點到 H1/H2/P 裡面的 Span/Strong，直接提升到外層文字框，
-    // 使用者不用理解 HTML 階層。
-    if (['span','strong','em','small'].includes(tag)) {
-      const parent = target.parent?.();
-      const parentTag = String(parent?.get('tagName') || '').toLowerCase();
-      if (TEXT_TAGS.has(parentTag)) {
-        target = parent;
-        tag = parentTag;
-      }
-    }
-
-    return TEXT_TAGS.has(tag) ? target : null;
+  const doc=iframe.contentDocument;
+  doc.addEventListener('pointermove',onResizeMove,true);
+  doc.addEventListener('pointerup',endResize,{once:true,capture:true});
+}
+function onResizeMove(e){
+  if(!resizeState||!selected) return;
+  const dx=e.clientX-resizeState.startX;
+  const newW=Math.max(30,resizeState.startW+dx);
+  if(resizeState.isText){
+    const scale=newW/Math.max(1,resizeState.startW);
+    selected.style.fontSize=`${Math.max(8,resizeState.startFont*scale).toFixed(1)}px`;
+  }else{
+    selected.style.width=`${newW.toFixed(0)}px`;
+    if(resizeState.isImage) selected.style.height='auto';
   }
-
-  function removeTextResizeOverlay(message='') {
-    if (textResizeState.cleanup) {
-      try { textResizeState.cleanup(); } catch {}
-    }
-    if (textResizeState.overlay?.remove) {
-      try { textResizeState.overlay.remove(); } catch {}
-    }
-
-    textResizeState = { component:null, overlay:null, cleanup:null };
-    $('#btnResize')?.classList.remove('mode-active');
-
-    if (message) setStatus(message);
-  }
-
-  function ensureTextResizeCanvasStyle(doc) {
-    if (doc.getElementById('chinon-canva-text-resize-style')) return;
-
-    const style = doc.createElement('style');
-    style.id = 'chinon-canva-text-resize-style';
-    style.textContent = `
-      .chinon-text-resize-box{
-        position:fixed;
-        z-index:2147483000;
-        border:2px solid #7657ef;
-        pointer-events:none;
-        box-sizing:border-box;
-      }
-      .chinon-text-resize-handle{
-        position:absolute;
-        width:12px;
-        height:12px;
-        border-radius:50%;
-        background:#fff;
-        border:2px solid #7657ef;
-        box-sizing:border-box;
-        pointer-events:auto;
-        touch-action:none;
-      }
-      .chinon-text-resize-handle[data-dir="nw"]{left:-7px;top:-7px;cursor:nwse-resize}
-      .chinon-text-resize-handle[data-dir="ne"]{right:-7px;top:-7px;cursor:nesw-resize}
-      .chinon-text-resize-handle[data-dir="sw"]{left:-7px;bottom:-7px;cursor:nesw-resize}
-      .chinon-text-resize-handle[data-dir="se"]{right:-7px;bottom:-7px;cursor:nwse-resize}
-
-      .chinon-text-resize-handle[data-dir="w"]{
-        left:-6px;top:50%;transform:translateY(-50%);
-        width:10px;height:22px;border-radius:6px;cursor:ew-resize;
-      }
-      .chinon-text-resize-handle[data-dir="e"]{
-        right:-6px;top:50%;transform:translateY(-50%);
-        width:10px;height:22px;border-radius:6px;cursor:ew-resize;
-      }
-      .chinon-text-size-badge{
-        position:absolute;
-        left:50%;
-        top:-34px;
-        transform:translateX(-50%);
-        padding:4px 8px;
-        border-radius:6px;
-        background:#7657ef;
-        color:#fff;
-        font:600 11px/1.2 system-ui,-apple-system,sans-serif;
-        white-space:nowrap;
-        pointer-events:none;
-        box-shadow:0 4px 14px rgba(0,0,0,.18);
-      }
-    `;
-    doc.head.appendChild(style);
-  }
-
-  function openCanvaTextResize(component) {
-    removeTextResizeOverlay();
-
-    const target = textResizeTarget(component);
-    if (!target) return false;
-
-    if (target !== component) editor.select(target);
-
-    const el = target.getEl?.();
-    const doc = editor.Canvas.getDocument?.();
-    const win = editor.Canvas.getWindow?.();
-
-    if (!el || !doc || !win) {
-      setStatus('目前文字框尚未準備完成，請重新點選文字後再按一次 Canva縮放。');
-      return true;
-    }
-
-    ensureTextResizeCanvasStyle(doc);
-
-    const overlay = doc.createElement('div');
-    overlay.className = 'chinon-text-resize-box';
-
-    const badge = doc.createElement('div');
-    badge.className = 'chinon-text-size-badge';
-    overlay.appendChild(badge);
-
-    ['nw','ne','sw','se','w','e'].forEach(dir => {
-      const handle = doc.createElement('div');
-      handle.className = 'chinon-text-resize-handle';
-      handle.dataset.dir = dir;
-      overlay.appendChild(handle);
-    });
-
-    doc.body.appendChild(overlay);
-
-    textResizeState.component = target;
-    textResizeState.overlay = overlay;
-    $('#btnResize')?.classList.add('mode-active');
-
-    const updateOverlay = () => {
-      if (!target.getEl?.() || !overlay.isConnected) return;
-
-      const rect = target.getEl().getBoundingClientRect();
-      const computed = win.getComputedStyle(target.getEl());
-      const fontSize = Math.round(parseFloat(computed.fontSize) || 16);
-
-      overlay.style.left = `${rect.left}px`;
-      overlay.style.top = `${rect.top}px`;
-      overlay.style.width = `${Math.max(2, rect.width)}px`;
-      overlay.style.height = `${Math.max(2, rect.height)}px`;
-      badge.textContent = `${fontSize}px`;
-    };
-
-    const listeners = [];
-
-    const listen = (node, type, fn, opts) => {
-      node.addEventListener(type, fn, opts);
-      listeners.push(() => node.removeEventListener(type, fn, opts));
-    };
-
-    const beginResize = (ev) => {
-      const handle = ev.target.closest?.('.chinon-text-resize-handle');
-      if (!handle || !overlay.contains(handle)) return;
-
-      ev.preventDefault();
-      ev.stopPropagation();
-
-      const dir = handle.dataset.dir;
-      const element = target.getEl();
-      if (!element) return;
-
-      const rect = element.getBoundingClientRect();
-      const computed = win.getComputedStyle(element);
-
-      const startFont = Math.max(6, parseFloat(computed.fontSize) || 16);
-      const startWidth = Math.max(10, rect.width);
-      const startHeight = Math.max(10, rect.height);
-
-      // inline 元素要先變成 inline-block，width 才能像 Canva 文字框一樣調整。
-      if (computed.display === 'inline') {
-        target.addStyle({ display:'inline-block' });
-      }
-
-      const sx = ev.clientX;
-      const sy = ev.clientY;
-
-      const isCorner = ['nw','ne','sw','se'].includes(dir);
-
-      let oppositeX = rect.left;
-      let oppositeY = rect.top;
-
-      if (dir === 'nw') { oppositeX = rect.right; oppositeY = rect.bottom; }
-      if (dir === 'ne') { oppositeX = rect.left;  oppositeY = rect.bottom; }
-      if (dir === 'sw') { oppositeX = rect.right; oppositeY = rect.top; }
-      if (dir === 'se') { oppositeX = rect.left;  oppositeY = rect.top; }
-
-      const startDistance = Math.max(
-        20,
-        Math.hypot(sx - oppositeX, sy - oppositeY)
-      );
-
-      const move = (moveEv) => {
-        moveEv.preventDefault();
-        moveEv.stopPropagation();
-
-        if (isCorner) {
-          // 四角：像 Canva 一樣整個文字框等比例縮放。
-          const currentDistance = Math.max(
-            5,
-            Math.hypot(moveEv.clientX - oppositeX, moveEv.clientY - oppositeY)
-          );
-
-          const scale = Math.min(5, Math.max(.2, currentDistance / startDistance));
-          const newFont = Math.min(220, Math.max(6, startFont * scale));
-          const newWidth = Math.max(24, startWidth * scale);
-
-          target.addStyle({
-            'font-size': `${newFont.toFixed(1)}px`,
-            'width': `${newWidth.toFixed(1)}px`
-          });
-
-          badge.textContent = `${Math.round(newFont)}px`;
-          setStatus(`Canva縮放：字體 ${Math.round(newFont)}px`);
-        } else {
-          // 左右中點：只改文字框寬度，不改字體，讓文字自動換行。
-          const dx = moveEv.clientX - sx;
-          let newWidth = startWidth;
-
-          if (dir === 'e') newWidth = startWidth + dx;
-          if (dir === 'w') newWidth = startWidth - dx;
-
-          newWidth = Math.max(40, newWidth);
-
-          target.addStyle({
-            'width': `${newWidth.toFixed(1)}px`
-          });
-
-          setStatus(`文字框寬度：${Math.round(newWidth)}px`);
-        }
-
-        editor.refresh();
-        requestAnimationFrame(updateOverlay);
-      };
-
-      const end = (upEv) => {
-        upEv.preventDefault();
-        upEv.stopPropagation();
-        doc.removeEventListener('pointermove', move, true);
-        doc.removeEventListener('pointerup', end, true);
-        doc.removeEventListener('pointercancel', end, true);
-        editor.refresh();
-        requestAnimationFrame(updateOverlay);
-      };
-
-      doc.addEventListener('pointermove', move, true);
-      doc.addEventListener('pointerup', end, true);
-      doc.addEventListener('pointercancel', end, true);
-    };
-
-    listen(overlay, 'pointerdown', beginResize, true);
-    listen(win, 'resize', updateOverlay);
-    listen(doc, 'scroll', updateOverlay, true);
-
-    textResizeState.cleanup = () => {
-      listeners.forEach(fn => {
-        try { fn(); } catch {}
-      });
-    };
-
-    updateOverlay();
-    setStatus('文字縮放框已開啟：直接拖四角放大/縮小字體；拖左右把手只改文字框寬度。');
-    return true;
-  }
-
-  function enableResize() {
-    const c = selectedOrWarn();
-    if (!c) return;
-
-    // 文字元件：使用自製 Canva 式縮放框。
-    if (openCanvaTextResize(c)) return;
-
-    // 圖片、區塊等非文字元件：保留 GrapesJS 原生尺寸縮放。
-    removeTextResizeOverlay();
-    c.set('resizable', true);
-    editor.refresh();
-    setStatus('已開啟一般縮放：拖曳元件邊緣／角落調整圖片或區塊大小。');
-  }
-
-  // -------- quick style --------
-  function openQuickStyle() {
-    if (!selectedOrWarn()) return;
-    $('#quickStyleDialog').showModal();
-  }
-
-  function applyQuickStyle() {
-    const c = selectedOrWarn(); if (!c) return;
-    const s = {};
-    const font = $('#quickFont').value;
-    const fs = $('#quickFontSize').value;
-    const radius = $('#quickRadius').value;
-    const opacity = $('#quickOpacity').value;
-    const align = $('#quickAlign').value;
-    const shadow = $('#quickShadow').value;
-
-    if (font) s['font-family'] = font;
-    if (fs) s['font-size'] = `${fs}px`;
-    if ($('#quickColor').value) s.color = $('#quickColor').value;
-    if ($('#quickBg').value) s['background-color'] = $('#quickBg').value;
-    if (radius !== '') s['border-radius'] = `${radius}px`;
-    if (opacity !== '') s.opacity = String(Math.max(0,Math.min(100,Number(opacity)))/100);
-    if (align) s['text-align'] = align;
-    if (shadow) {
-      const tag = String(c.get('tagName')||'').toLowerCase();
-      if (['p','span','h1','h2','h3','h4','h5','h6','a','strong'].includes(tag)) s['text-shadow'] = shadow;
-      else s['box-shadow'] = shadow;
-    }
-    c.addStyle(s);
-    setStatus('快速樣式已套用。');
-  }
-
-  function toggleTextStyle(prop, onValue, offValue='normal') {
-    const c = selectedOrWarn(); if (!c) return;
-    const s = c.getStyle?.() || {};
-    c.addStyle({[prop]: s[prop] === onValue ? offValue : onValue});
-  }
-
-  // -------- page tools --------
-  function addPage() {
-    const name = prompt('新頁面名稱：', '新頁面');
-    if (!name) return;
-    const raw = prompt('網址檔名（例如 about）：', sanitizeSlug(name));
-    if (!raw) return;
-    let file = `${sanitizeSlug(raw)}.html`;
-    if (editor.Pages.getAll().some(p => pageFile(p) === file)) {
-      alert('這個檔名已經存在。');
-      return;
-    }
-    const page = editor.Pages.add({
-      name,
-      chinonFile:file,
-      component:`<main style="min-height:100vh;padding:60px"><h1>${name}</h1><p>雙擊修改內容，或用上方工具新增元件。</p></main>`
-    });
-    editor.Pages.select(page);
-    refreshPages();
-    setStatus(`已新增頁面：${name} (${file})`);
-  }
-
-  function renamePage() {
-    const p = currentPage(); if (!p) return;
-    const name = prompt('頁面名稱：', p.get('name') || '');
-    if (!name) return;
-    p.set('name', name);
-    if (pageFile(p) !== 'index.html') {
-      const fileRaw = prompt('網址檔名：', pageFile(p).replace(/\.html$/,''));
-      if (fileRaw) p.set('chinonFile', `${sanitizeSlug(fileRaw)}.html`);
-    }
-    refreshPages();
-    setStatus('頁面名稱已更新。');
-  }
-
-  function deletePage() {
-    const p = currentPage(); if (!p) return;
-    if (pageFile(p) === 'index.html') {
-      alert('首頁不能刪除。');
-      return;
-    }
-    if (!confirm(`刪除頁面「${p.get('name')}」？`)) return;
-    editor.Pages.remove(p);
-    editor.Pages.select(editor.Pages.getAll()[0]);
-    refreshPages();
-    setStatus('頁面已刪除。');
-  }
-
-
-  // -------- V9 fixed-template baseline / patch helpers --------
-  async function sha256Text(text) {
-    const bytes = new TextEncoder().encode(String(text || ''));
-    const digest = await crypto.subtle.digest('SHA-256', bytes);
-    return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2,'0')).join('');
-  }
-
-  function stableKeyPrefix(file) {
-    return String(file || 'page').replace(/\.html$/i,'').replace(/[^a-z0-9_-]/gi,'-');
-  }
-
-  function assignStableKeys(doc, file) {
-    const map = new Map();
-    if (!doc?.body) return map;
-    const prefix = stableKeyPrefix(file);
-
-    function walk(parent, path) {
-      const children = [...parent.children].filter(el => {
-        const tag = el.tagName;
-        return tag !== 'SCRIPT' && tag !== 'STYLE';
-      });
-
-      children.forEach((el, index) => {
-        const nextPath = [...path, index];
-        const key = `${prefix}:${nextPath.join('.')}`;
-        el.setAttribute(STABLE_KEY_ATTR, key);
-        el.setAttribute(STABLE_PAGE_ATTR, file);
-        map.set(key, el);
-        walk(el, nextPath);
-      });
-    }
-
-    walk(doc.body, []);
-    return map;
-  }
-
-  function stripEditorAttrs(root) {
-    if (!root) return;
-    if (root.removeAttribute) {
-      root.removeAttribute(STABLE_KEY_ATTR);
-      root.removeAttribute(STABLE_PAGE_ATTR);
-      root.removeAttribute(SNAPSHOT_ATTR);
-      root.removeAttribute('data-gjs-type');
-      root.removeAttribute('data-highlightable');
-    }
-    root.querySelectorAll?.(`[${STABLE_KEY_ATTR}], [${STABLE_PAGE_ATTR}], [${SNAPSHOT_ATTR}], [data-gjs-type], [data-highlightable]`)
-      .forEach(el => {
-        el.removeAttribute(STABLE_KEY_ATTR);
-        el.removeAttribute(STABLE_PAGE_ATTR);
-        el.removeAttribute(SNAPSHOT_ATTR);
-        el.removeAttribute('data-gjs-type');
-        el.removeAttribute('data-highlightable');
-      });
-  }
-
-  function cleanInnerHtml(el) {
-    const box = document.createElement('div');
-    box.innerHTML = el?.innerHTML || '';
-    stripEditorAttrs(box);
-    return box.innerHTML;
-  }
-
-  function styleObjectFromElement(el) {
-    const out = {};
-    if (!el?.style) return out;
-    for (let i = 0; i < el.style.length; i++) {
-      const prop = el.style[i];
-      out[prop] = el.style.getPropertyValue(prop).trim();
-    }
-    return out;
-  }
-
-  function relevantAttrs(el) {
-    const tag = String(el?.tagName || '').toUpperCase();
-    const names = tag === 'IMG'
-      ? ['src','alt','title','srcset','loading','width','height']
-      : tag === 'A'
-        ? ['href','target','rel','title']
-        : tag === 'IFRAME'
-          ? ['src','title','allow','allowfullscreen']
-          : tag === 'VIDEO'
-            ? ['src','poster','controls','autoplay','loop','muted']
-            : tag === 'SOURCE'
-              ? ['src','srcset','type','media']
-              : tag === 'BUTTON'
-                ? ['type','title']
-                : ['title'];
-
-    const out = {};
-    names.forEach(name => {
-      if (el?.hasAttribute?.(name)) out[name] = el.getAttribute(name);
-    });
-    return out;
-  }
-
-  function snapshotBaselineDocument(doc) {
-    const out = new Map();
-    doc.querySelectorAll(`[${STABLE_KEY_ATTR}]`).forEach(el => {
-      const key = el.getAttribute(STABLE_KEY_ATTR);
-      out.set(key, {
-        tag: el.tagName,
-        innerHTML: cleanInnerHtml(el),
-        attrs: relevantAttrs(el),
-        inlineStyle: styleObjectFromElement(el)
-      });
-    });
-    return out;
-  }
-
-  function componentMapForPage(page) {
-    const out = new Map();
-    const root = page?.getMainComponent?.();
-    if (!root) return out;
-    walkComponents(root, c => {
-      const attrs = c.getAttributes?.() || {};
-      const key = attrs[STABLE_KEY_ATTR];
-      if (key) out.set(key, c);
-    });
-    return out;
-  }
-
-  function htmlElementMapForPage(page) {
-    const root = page?.getMainComponent?.();
-    const html = root ? editor.getHtml({component:root}) : '';
-    const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
-    const out = new Map();
-    doc.body.querySelectorAll(`[${STABLE_KEY_ATTR}]`).forEach(el => {
-      out.set(el.getAttribute(STABLE_KEY_ATTR), el);
-    });
-    return {doc, map:out};
-  }
-
-  function hasNestedTextTarget(el) {
-    return [...(el?.children || [])].some(child => {
-      if (TEXT_PATCH_TAGS.has(child.tagName)) return true;
-      return hasNestedTextTarget(child);
-    });
-  }
-
-  function isTextPatchTarget(el) {
-    if (!el || !TEXT_PATCH_TAGS.has(el.tagName)) return false;
-    if (el.querySelector?.('img,video,iframe,picture,figure,table,section,div,article,header,footer,nav,main')) return false;
-    return !hasNestedTextTarget(el);
-  }
-
-  function toKebab(prop) {
-    return String(prop || '').replace(/[A-Z]/g, m => '-' + m.toLowerCase());
-  }
-
-  function stylesEqual(a, b) {
-    const ka = Object.keys(a || {}).sort();
-    const kb = Object.keys(b || {}).sort();
-    if (ka.length !== kb.length) return false;
-    return ka.every((k, i) => k === kb[i] && String(a[k] || '') === String(b[k] || ''));
-  }
-
-  function attrsEqual(a, b) {
-    const ka = Object.keys(a || {}).sort();
-    const kb = Object.keys(b || {}).sort();
-    if (ka.length !== kb.length) return false;
-    return ka.every((k, i) => k === kb[i] && String(a[k] || '') === String(b[k] || ''));
-  }
-
-  async function prepareLiveBaseline() {
-    setStatus('正在讀取正式網站基準…');
-
-    let cssText = CFG.fallbackCss;
-    try {
-      cssText = await fetchText(`../styles.css?t=${Date.now()}`);
-    } catch {}
-    lastSiteCss = normalizeCssAssetPaths(cssText);
-
-    baselineByFile.clear();
-    preparedLivePages = [];
-
-    for (const item of SITE_PAGES) {
-      let source = '';
-      try {
-        source = await fetchText(`../${item.file}?t=${Date.now()}`);
-      } catch (error) {
-        if (item.file !== 'index.html') continue;
-        source = `<!doctype html><html><body>${CFG.fallbackBody}</body></html>`;
-      }
-
-      const sourceHash = await sha256Text(source);
-      const doc = new DOMParser().parseFromString(source, 'text/html');
-
-      // Canvas 不執行正式網站 JS；CSS 由 iframe 直接 link 正式 styles.css。
-      doc.querySelectorAll('script').forEach(el => el.remove());
-      doc.querySelectorAll('link[rel="stylesheet"]').forEach(el => el.remove());
-      normalizeHtmlAssetPaths(doc);
-      assignStableKeys(doc, item.file);
-
-      const body = doc.body?.innerHTML || '';
-      const snapshots = snapshotBaselineDocument(doc);
-
-      baselineByFile.set(item.file, {
-        sourceHash,
-        source,
-        snapshots
-      });
-
-      preparedLivePages.push({...item, body});
-    }
-
-    return preparedLivePages;
-  }
-
-  function applyPreparedLivePages(loaded) {
-    const pm = editor.Pages;
-    const existing = [...pm.getAll()];
-    const first = existing[0] || pm.add({name:'首頁',component:''});
-    existing.slice(1).forEach(p => pm.remove(p));
-
-    const firstData = loaded[0] || {file:'index.html',name:'首頁',body:CFG.fallbackBody};
-    first.set('name', firstData.name);
-    first.set('chinonFile', firstData.file);
-    pm.select(first);
-    editor.setComponents(firstData.body);
-
-    for (const item of loaded.slice(1)) {
-      pm.add({name:item.name, chinonFile:item.file, component:item.body});
-    }
-
-    editor.setStyle('');
-    pm.select(first);
-    ensureCanvasEnvironment();
-    requestAnimationFrame(ensureCanvasEnvironment);
-    refreshPages();
-  }
-
-  async function dataUrlToPublishedAsset(dataUrl, files, assetState, kind='image') {
-    const asset = await dataUrlToAsset(dataUrl, kind);
-    const name = `chinon-${assetState.version}-${assetState.counter++}.${asset.ext}`;
-    const path = `assets/uploads/${name}`;
-    files.set(path, {content:asset.base64, encoding:'base64'});
-    return path;
-  }
-
-  async function normalizePublishStyleValue(prop, value, files, assetState) {
-    const raw = String(value || '');
-    const match = raw.match(/url\(\s*(['"]?)(data:[^)'"]+)\1\s*\)/i);
-    if (!match) return raw;
-    const path = await dataUrlToPublishedAsset(match[2], files, assetState, 'background');
-    return raw.replace(match[2], path);
-  }
-
-  function removeStableAttrsFromDocument(doc) {
-    doc.querySelectorAll(`[${STABLE_KEY_ATTR}], [${STABLE_PAGE_ATTR}], [${SNAPSHOT_ATTR}]`).forEach(el => {
-      el.removeAttribute(STABLE_KEY_ATTR);
-      el.removeAttribute(STABLE_PAGE_ATTR);
-      el.removeAttribute(SNAPSHOT_ATTR);
-    });
-  }
-
-  async function buildStablePublishFiles() {
-    const files = new Map();
-    const assetState = {
-      version: Date.now().toString(36),
-      counter: 1
-    };
-
-    let changedPages = 0;
-    let changedElements = 0;
-    let skippedPosition = 0;
-
-    for (const item of SITE_PAGES) {
-      const base = baselineByFile.get(item.file);
-      if (!base) continue;
-
-      const page = editor.Pages.getAll().find(p => pageFile(p) === item.file);
-      if (!page) continue;
-
-      const currentSource = await fetchText(`../${item.file}?publishCheck=${Date.now()}`);
-      const currentHash = await sha256Text(currentSource);
-
-      if (currentHash !== base.sourceHash) {
-        throw new Error(
-          `${item.name}（${item.file}）在你最後一次「重新載入」之後已被更新。` +
-          `為避免覆蓋新版本，V9 已停止發布。請先按「重新載入」再確認修改。`
-        );
-      }
-
-      const liveDoc = new DOMParser().parseFromString(currentSource, 'text/html');
-      const liveMap = assignStableKeys(liveDoc, item.file);
-      const {map:currentHtmlMap} = htmlElementMapForPage(page);
-      const componentMap = componentMapForPage(page);
-
-      let pageChanged = false;
-
-      for (const [key, snap] of base.snapshots) {
-        const liveEl = liveMap.get(key);
-        const currentEl = currentHtmlMap.get(key);
-        const comp = componentMap.get(key);
-
-        if (!liveEl || !currentEl || !comp) {
-          throw new Error(
-            `${item.name} 的固定版面結構已被增刪或重排。V9 為避免跑版，已停止發布。` +
-            `請按「重新載入」恢復正式版面，再修改既有文字或圖片。`
-          );
-        }
-
-        if (currentEl.tagName !== snap.tag || liveEl.tagName !== snap.tag) {
-          throw new Error(`${item.name} 的元素結構已改變，穩定發布已停止。`);
-        }
-
-        let elementChanged = false;
-
-        // 文字：只更新最低層的文字元件，不替換父層版面。
-        if (isTextPatchTarget(currentEl)) {
-          const nowHtml = cleanInnerHtml(currentEl);
-          if (nowHtml !== snap.innerHTML) {
-            const holder = document.createElement('div');
-            holder.innerHTML = nowHtml;
-            stripEditorAttrs(holder);
-            liveEl.innerHTML = holder.innerHTML;
-            elementChanged = true;
-          }
-        }
-
-        // 連結 / 圖片等白名單屬性。
-        const nowAttrs = relevantAttrs(currentEl);
-        if (!attrsEqual(nowAttrs, snap.attrs)) {
-          const attrNames = new Set([...Object.keys(snap.attrs || {}), ...Object.keys(nowAttrs || {})]);
-
-          for (const name of attrNames) {
-            let value = nowAttrs[name];
-
-            if ((name === 'src' || name === 'poster') && value?.startsWith('data:')) {
-              value = await dataUrlToPublishedAsset(value, files, assetState, name === 'poster' ? 'poster' : 'image');
-            }
-
-            if (value === undefined || value === null || value === '') {
-              liveEl.removeAttribute(name);
-            } else {
-              liveEl.setAttribute(name, value);
-            }
-          }
-          elementChanged = true;
-        }
-
-        // 個別樣式：只寫到該元素 inline style，不改 styles.css。
-        const currentStyleRaw = comp.getStyle?.() || {};
-        const currentStyle = {};
-        Object.entries(currentStyleRaw).forEach(([prop, value]) => {
-          currentStyle[toKebab(prop)] = String(value ?? '').trim();
-        });
-
-        const baselineStyle = snap.inlineStyle || {};
-        const styleProps = new Set([...Object.keys(baselineStyle), ...Object.keys(currentStyle)]);
-
-        for (const prop of styleProps) {
-          const before = String(baselineStyle[prop] || '').trim();
-          const after = String(currentStyle[prop] || '').trim();
-          if (before === after) continue;
-
-          if (BLOCKED_STYLE_PROPS.has(prop)) {
-            skippedPosition += 1;
-            continue;
-          }
-
-          if (!after) {
-            liveEl.style.removeProperty(prop);
-          } else {
-            const safeValue = await normalizePublishStyleValue(prop, after, files, assetState);
-            liveEl.style.setProperty(prop, safeValue);
-          }
-          elementChanged = true;
-        }
-
-        if (elementChanged) {
-          changedElements += 1;
-          pageChanged = true;
-        }
-      }
-
-      if (pageChanged) {
-        // 若用了編輯器可選字型，確保正式頁也能載入字型；不碰原 styles.css。
-        if (!liveDoc.head.querySelector('link[data-chinon-fonts]')) {
-          const fontLink = liveDoc.createElement('link');
-          fontLink.rel = 'stylesheet';
-          fontLink.href = CFG.fontUrl;
-          fontLink.setAttribute('data-chinon-fonts','1');
-          liveDoc.head.appendChild(fontLink);
-        }
-
-        removeStableAttrsFromDocument(liveDoc);
-        files.set(item.file, {
-          content:'<!doctype html>\n' + liveDoc.documentElement.outerHTML,
-          encoding:'utf-8'
-        });
-        changedPages += 1;
-      }
-    }
-
-    return {
-      files,
-      summary:{
-        pages:changedPages,
-        elements:changedElements,
-        uploads:[...files.keys()].filter(path => path.startsWith('assets/uploads/')).length,
-        skippedPosition
-      }
-    };
-  }
-
-  // -------- load/reload --------
-  async function fetchText(url) {
-    const r = await fetch(url, {cache:'no-store'});
-    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-    return await r.text();
-  }
-
-  async function loadLive({ask=true}={}) {
-    ensureCanvasBase();
-    if (ask && !confirm(
-      '重新載入會用目前正式網站覆蓋 V9 草稿。\\n\\n' +
-      '如果你有尚未發布的修改，請先下載草稿備份。\\n\\n繼續？'
-    )) return;
-
-    const loaded = await prepareLiveBaseline();
-    applyPreparedLivePages(loaded);
-
-    try {
-      await saveDraft({silent:true});
-    } catch (error) {
-      console.warn('重新載入後草稿儲存失敗', error);
-    }
-
-    setStatus('V9.0 正式網站基準已載入：固定版面不會在發布時被整頁重寫。');
-  }
-
-  // -------- code --------
-  function openCode() {
-    const p = currentPage();
-    const root = p?.getMainComponent?.();
-    $('#htmlCode').value = root ? editor.getHtml({component:root}) : editor.getHtml();
-    $('#cssCode').value = editor.getCss(); // 僅顯示編輯器覆蓋樣式；正式 styles.css 直接由官網載入
-    $('#codeDialog').showModal();
-  }
-
-  function applyCode() {
-    editor.setComponents($('#htmlCode').value);
-    editor.setStyle($('#cssCode').value);
-    $('#codeDialog').close();
-    setStatus('HTML / CSS 已套用。');
-  }
-
-  async function copyText(text,label) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setStatus(`${label} 已複製。`);
-    } catch {
-      alert('請在文字框 Ctrl+A → Ctrl+C 複製。');
-    }
-  }
-
-
-
-
-  // -------- V8.8 穩定發布：排除自由移動的臨時定位 --------
-  function allPageComponents() {
-    const list = [];
-    editor.Pages.getAll().forEach(page => {
-      const root = page.getMainComponent?.();
-      if (!root) return;
-      walkComponents(root, c => list.push(c));
-    });
-    return list;
-  }
-
-  function beginSafePublishLayout() {
-    const changed = [];
-    safeExportInProgress = true;
-
-    allPageComponents().forEach(c => {
-      const attrs = c.getAttributes?.() || {};
-      if (!attrs[SNAPSHOT_ATTR]) return;
-
-      let snap;
-      try {
-        snap = JSON.parse(decodeURIComponent(attrs[SNAPSHOT_ATTR]));
-      } catch {
-        return;
-      }
-
-      const currentStyle = { ...(c.getStyle?.() || {}) };
-      changed.push({
-        component: c,
-        style: currentStyle,
-        snapshotAttr: attrs[SNAPSHOT_ATTR]
-      });
-
-      const cleanStyle = { ...currentStyle };
-      ['position','top','right','bottom','left','z-index','transform'].forEach(k => {
-        const v = snap[k];
-        if (v === null || v === '') delete cleanStyle[k];
-        else cleanStyle[k] = v;
-      });
-      c.setStyle(cleanStyle);
-    });
-
-    return changed;
-  }
-
-  function endSafePublishLayout(changed) {
-    try {
-      changed.forEach(item => {
-        item.component.setStyle(item.style);
-        item.component.addAttributes({ [SNAPSHOT_ATTR]: item.snapshotAttr });
-      });
-      editor.refresh();
-    } finally {
-      safeExportInProgress = false;
-    }
-  }
-
-  async function withSafePublishLayout(fn) {
-    const changed = beginSafePublishLayout();
-    try {
-      return await fn();
-    } finally {
-      endSafePublishLayout(changed);
-    }
-  }
-
-  async function buildDocumentPreservingHead(page, bodyHtml, assetVersion='') {
-    const file = pageFile(page);
-    let doc = null;
-
-    try {
-      const source = await fetchText(`../${file}?safe=${Date.now()}`);
-      doc = new DOMParser().parseFromString(source, 'text/html');
-    } catch {}
-
-    if (!doc || !doc.documentElement) {
-      return docForPage(page, bodyHtml, assetVersion);
-    }
-
-    // 保留正式網站原本完整 head，只更新可視內容。
-    doc.body.innerHTML = bodyHtml;
-
-    let cssLink = doc.head.querySelector('link[rel="stylesheet"][href*="styles.css"]');
-    if (!cssLink) {
-      cssLink = doc.createElement('link');
-      cssLink.rel = 'stylesheet';
-      doc.head.appendChild(cssLink);
-    }
-    cssLink.href = `styles.css?v=${encodeURIComponent(assetVersion)}`;
-
-    doc.body.querySelectorAll('script[src*="main.js"]').forEach(el => el.remove());
-    const script = doc.createElement('script');
-    script.src = `main.js?v=${encodeURIComponent(assetVersion)}`;
-    doc.body.appendChild(script);
-
-    return '<!doctype html>\n' + doc.documentElement.outerHTML;
-  }
-
-  // -------- V8.0 full-sync asset snapshot helpers --------
-  async function dataUrlToAsset(dataUrl, suggestedBase='image') {
-    const res = await fetch(dataUrl);
-    const blob = await res.blob();
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    const ext = extFromMime(blob.type || 'application/octet-stream');
-    return {
-      mime: blob.type || 'application/octet-stream',
-      ext,
-      base64: bytesToBase64(bytes),
-      base: suggestedBase
-    };
-  }
-
-  function dataUrlRegex() {
-    return /url\(\s*(['"]?)(data:[^)'"]+)\1\s*\)/gi;
-  }
-
-  async function replaceDataUrlsInCss(cssText, files, counterRef) {
-    let css = String(cssText || '');
-    const matches = [...css.matchAll(dataUrlRegex())];
-
-    for (const match of matches) {
-      const whole = match[0];
-      const quote = match[1] || '';
-      const dataUrl = match[2];
-      const asset = await dataUrlToAsset(dataUrl, 'background');
-      const name = `background-${counterRef.value++}.${asset.ext}`;
-      const path = `assets/uploads/${name}`;
-      files.set(path, { content: asset.base64, encoding:'base64' });
-      css = css.replace(whole, `url(${quote}${path}${quote})`);
-    }
-
-    return css;
-  }
-
-  async function replaceDataUrlsInDocument(doc, files, counterRef) {
-    // <img src="data:...">
-    for (const img of [...doc.body.querySelectorAll('img[src^="data:"]')]) {
-      const src = img.getAttribute('src');
-      const asset = await dataUrlToAsset(src, 'image');
-      const name = `image-${counterRef.value++}.${asset.ext}`;
-      const path = `assets/uploads/${name}`;
-      files.set(path, { content: asset.base64, encoding:'base64' });
-      img.setAttribute('src', path);
-    }
-
-    // poster="data:..."
-    for (const el of [...doc.body.querySelectorAll('[poster^="data:"]')]) {
-      const src = el.getAttribute('poster');
-      const asset = await dataUrlToAsset(src, 'poster');
-      const name = `poster-${counterRef.value++}.${asset.ext}`;
-      const path = `assets/uploads/${name}`;
-      files.set(path, { content: asset.base64, encoding:'base64' });
-      el.setAttribute('poster', path);
-    }
-
-    // inline style background-image:url(data:...)
-    for (const el of [...doc.body.querySelectorAll('[style*="data:"]')]) {
-      let styleText = el.getAttribute('style') || '';
-      const matches = [...styleText.matchAll(dataUrlRegex())];
-
-      for (const match of matches) {
-        const whole = match[0];
-        const quote = match[1] || '';
-        const dataUrl = match[2];
-        const asset = await dataUrlToAsset(dataUrl, 'background');
-        const name = `background-${counterRef.value++}.${asset.ext}`;
-        const path = `assets/uploads/${name}`;
-        files.set(path, { content: asset.base64, encoding:'base64' });
-        styleText = styleText.replace(whole, `url(${quote}${path}${quote})`);
-      }
-
-      el.setAttribute('style', styleText);
-    }
-
-    // srcset data urls (rare, but keep complete)
-    for (const el of [...doc.body.querySelectorAll('[srcset*="data:"]')]) {
-      const raw = el.getAttribute('srcset') || '';
-      const parts = raw.split(',').map(s => s.trim()).filter(Boolean);
-      const rebuilt = [];
-
-      for (const part of parts) {
-        const bits = part.split(/\s+/);
-        const src = bits.shift() || '';
-        if (src.startsWith('data:')) {
-          const asset = await dataUrlToAsset(src, 'responsive');
-          const name = `responsive-${counterRef.value++}.${asset.ext}`;
-          const path = `assets/uploads/${name}`;
-          files.set(path, { content: asset.base64, encoding:'base64' });
-          rebuilt.push([path, ...bits].join(' '));
-        } else {
-          rebuilt.push(part);
-        }
-      }
-
-      el.setAttribute('srcset', rebuilt.join(', '));
-    }
-  }
-
-  async function getPreservedMainJs() {
-    // 編輯器本身沒有站台 JS 編輯器，因此發布時保留正式網站目前的 main.js，
-    // 避免每次發布把原本功能清空。
-    try {
-      return await fetchText(`../main.js?t=${Date.now()}`);
-    } catch {
-      return '// CHINON site script\n';
-    }
-  }
-
-  // -------- V7.8 direct GitHub publish --------
-  const PUBLISH_SETTINGS_KEY = 'chinon-publish-settings-v1';
-  const PUBLISH_TOKEN_KEY = 'chinon-github-token-session';
-
-  function publishProgress(message, type='') {
-    const el = $('#publishProgress');
-    if (!el) return;
-    el.textContent = message;
-    el.classList.remove('ok','error');
-    if (type) el.classList.add(type);
-  }
-
-  function loadPublishSettings() {
-    let saved = {};
-    try { saved = JSON.parse(localStorage.getItem(PUBLISH_SETTINGS_KEY) || '{}'); } catch {}
-
-    $('#publishOwner').value = saved.owner || 'TSRCBC';
-    $('#publishRepo').value = saved.repo || 'TSRCBC.github.io';
-    $('#publishBranch').value = saved.branch || 'main';
-    $('#publishToken').value = sessionStorage.getItem(PUBLISH_TOKEN_KEY) || '';
-  }
-
-  function savePublishSettings() {
-    const owner = $('#publishOwner').value.trim();
-    const repo = $('#publishRepo').value.trim();
-    const branch = $('#publishBranch').value.trim() || 'main';
-    const token = $('#publishToken').value.trim();
-
-    localStorage.setItem(PUBLISH_SETTINGS_KEY, JSON.stringify({ owner, repo, branch }));
-
-    if (token) sessionStorage.setItem(PUBLISH_TOKEN_KEY, token);
-    else sessionStorage.removeItem(PUBLISH_TOKEN_KEY);
-
-    return { owner, repo, branch, token };
-  }
-
-  function openPublishDialog() {
-    loadPublishSettings();
-    publishProgress('V9 穩定發布：只更新已修改元素；不重寫整頁、不覆蓋 styles.css / main.js。');
-    $('#publishDialog').showModal();
-  }
-
-  function bytesToBase64(bytes) {
-    let binary = '';
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) {
-      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-    }
-    return btoa(binary);
-  }
-
-  async function dataUrlToBase64(dataUrl) {
-    const res = await fetch(dataUrl);
-    const blob = await res.blob();
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    return {
-      mime: blob.type || 'application/octet-stream',
-      base64: bytesToBase64(bytes)
-    };
-  }
-
-  async function buildPublishFiles() {
-    const files = new Map();
-    const assetCounter = { value: 1 };
-    const assetVersion = Date.now().toString(36);
-
-    // 1) 所有頁面：文字、連結、圖片、inline style 都從目前編輯器狀態輸出
-    for (const page of editor.Pages.getAll()) {
-      const root = page.getMainComponent();
-      let html = cleanSnapshotAttrs(editor.getHtml({component:root}));
-      const doc = new DOMParser().parseFromString(`<body>${html}</body>`,'text/html');
-
-      await replaceDataUrlsInDocument(doc, files, assetCounter);
-
-      html = doc.body.innerHTML;
-
-      files.set(pageFile(page), {
-        content: await buildDocumentPreservingHead(page, html, assetVersion),
-        encoding:'utf-8'
-      });
-    }
-
-    // 2) 全站 CSS：字型、大小、粗細、字距、行高、顏色、位置、RWD 等一次同步
-    const editorCss = editor.getCss() || '';
-    let css = '';
-
-    const baselineCss = String(lastSiteCss || '').trim();
-    if (baselineCss) css += baselineCss + '\n\n';
-
-    // V8.9 editor.getCss() 只保存使用者在後台新增/修改的覆蓋樣式。
-    css += '/* ===== CHINON EDITOR OVERRIDES ===== */\n' + editorCss;
-
-    if (!css.includes('fonts.googleapis.com')) {
-      css = `@import url('${CFG.fontUrl}');\n\n` + css;
-    }
-
-    // CSS 裡若有 data: 背景圖，也真正存成 assets/uploads 檔案
-    css = await replaceDataUrlsInCss(css, files, assetCounter);
-
-    files.set('styles.css', {
-      content: css,
-      encoding:'utf-8'
-    });
-
-    // 3) 保留正式網站既有 main.js，不再用空白 JS 覆蓋
-    files.set('main.js', {
-      content: await getPreservedMainJs(),
-      encoding:'utf-8'
-    });
-
-    return {
-      files,
-      assetVersion,
-      summary: {
-        pages: editor.Pages.getAll().length,
-        uploads: [...files.keys()].filter(path => path.startsWith('assets/uploads/')).length
-      }
-    };
-  }
-
-  async function githubApi(url, token, options={}) {
-    const headers = {
-      'Accept': 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      'Authorization': `Bearer ${token}`,
-      ...(options.headers || {})
-    };
-
-    let res;
-    try {
-      res = await fetch(url, { ...options, headers });
-    } catch (error) {
-      throw new Error(`無法連線 GitHub API：${error.message}`);
-    }
-
-    if (!res.ok) {
-      let detail = '';
-      try {
-        const data = await res.json();
-        detail = data?.message || JSON.stringify(data);
-      } catch {
-        detail = await res.text();
-      }
-
-      if (res.status === 401) {
-        throw new Error('GitHub Token 無效或已過期。請重新建立 Token。');
-      }
-      if (res.status === 403) {
-        throw new Error('GitHub 拒絕發布。請確認 Token 已授權此 Repository，且 Contents 權限為 Read and write。');
-      }
-      if (res.status === 404) {
-        throw new Error('找不到 Repository / Branch，或 Token 沒有這個 Repository 的存取權。');
-      }
-
-      throw new Error(`GitHub API ${res.status}：${detail}`);
-    }
-
-    if (res.status === 204) return null;
-    return await res.json();
-  }
-
-  async function createGithubBlob(owner, repo, token, file) {
-    return githubApi(
-      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/blobs`,
-      token,
-      {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          content:file.content,
-          encoding:file.encoding === 'base64' ? 'base64' : 'utf-8'
-        })
-      }
-    );
-  }
-
-  async function publishToGithub() {
-    const button = $('#btnDoPublish');
-    const { owner, repo, branch, token } = savePublishSettings();
-
-    if (!owner || !repo || !branch || !token) {
-      publishProgress('請完整填寫 Owner、Repository、Branch 與 GitHub Token。', 'error');
-      return;
-    }
-
-    if (!confirm(`確定穩定發布到 ${owner}/${repo} 的 ${branch} 分支？\n\nV9 只更新既有元素內容與個別樣式；不重寫整頁、不覆蓋 styles.css / main.js。\n\n發布後 GitHub Pages 會重新部署正式網站。`)) {
-      return;
-    }
-
-    button.disabled = true;
-
-    try {
-      publishProgress('1/6 正在備份目前編輯內容…');
-      try {
-        await saveDraft({silent:true});
-      } catch (draftError) {
-        // 草稿儲存失敗不能阻止正式發布。
-        console.warn('草稿儲存失敗，但繼續發布', draftError);
-        publishProgress(`草稿儲存失敗（${draftError.message}），但會繼續發布目前畫面內容…`);
-      }
-
-      publishProgress('2/6 正在整理網站檔案…');
-      const snapshot = await buildStablePublishFiles();
-      const files = snapshot.files;
-
-      if (!files.size) {
-        publishProgress('沒有偵測到需要發布的內容變更。正式網站未修改。', 'ok');
-        return;
-      }
-
-      publishProgress('3/6 正在讀取 GitHub 最新版本…');
-      const ref = await githubApi(
-        `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/ref/heads/${encodeURIComponent(branch)}`,
-        token
-      );
-      const parentSha = ref.object.sha;
-
-      const parentCommit = await githubApi(
-        `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/commits/${parentSha}`,
-        token
-      );
-      const baseTreeSha = parentCommit.tree.sha;
-
-      publishProgress(`4/6 正在發布 ${snapshot.summary.pages} 個有變更的頁面、${snapshot.summary.elements} 個元素與 ${snapshot.summary.uploads} 個新圖片資源…`);
-      const entries = [];
-
-      let done = 0;
-      for (const [path, file] of files) {
-        const blob = await createGithubBlob(owner, repo, token, file);
-        entries.push({
-          path,
-          mode:'100644',
-          type:'blob',
-          sha:blob.sha
-        });
-        done += 1;
-        publishProgress(`4/6 正在上傳網站檔案… ${done}/${files.size}`);
-      }
-
-
-      publishProgress('5/6 正在建立 GitHub Commit…');
-      const tree = await githubApi(
-        `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees`,
-        token,
-        {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({
-            base_tree:baseTreeSha,
-            tree:entries
-          })
-        }
-      );
-
-      const commit = await githubApi(
-        `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/commits`,
-        token,
-        {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({
-            message:`Publish CHINON site ${new Date().toLocaleString('zh-TW')}`,
-            tree:tree.sha,
-            parents:[parentSha]
-          })
-        }
-      );
-
-      publishProgress('6/6 正在更新正式網站分支…');
-      await githubApi(
-        `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/refs/heads/${encodeURIComponent(branch)}`,
-        token,
-        {
-          method:'PATCH',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({
-            sha:commit.sha,
-            force:false
-          })
-        }
-      );
-
-      publishProgress(
-        `穩定發布成功！
-頁面：${snapshot.summary.pages}
-新圖片資源：${snapshot.summary.uploads}
-Commit：${commit.sha.slice(0,7)}
-
-已修改的文字、圖片、連結與個別樣式已送出；正式 styles.css / main.js 與其他版面結構保持不變。
-GitHub Pages 仍需要一點時間重新部署。`,
-        'ok'
-      );
-      setStatus('穩定發布已送出 GitHub：保留正式網站基礎版面，並排除自由移動的臨時定位。');
-
-    } catch (error) {
-      console.error(error);
-      publishProgress(`發布失敗：${error.message}`, 'error');
-      setStatus('發布失敗，請查看發布視窗中的錯誤訊息。');
-    } finally {
-      button.disabled = false;
-    }
-  }
-
-  // -------- export --------
-  function cleanSnapshotAttrs(html) {
-    const d = new DOMParser().parseFromString(`<body>${html}</body>`,'text/html');
-    d.body.querySelectorAll(`[${SNAPSHOT_ATTR}]`).forEach(el=>el.removeAttribute(SNAPSHOT_ATTR));
-    return d.body.innerHTML;
-  }
-
-  function docForPage(page, bodyHtml, assetVersion='') {
-    const title = page.get('name') || 'CHINON 奇農';
-    const suffix = assetVersion ? `?v=${encodeURIComponent(assetVersion)}` : '';
-    return `<!doctype html>
-<html lang="zh-Hant">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>${title.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}</title>
-  <link rel="stylesheet" href="styles.css${suffix}">
-</head>
-<body>
-${bodyHtml}
-<script src="main.js${suffix}"></script>
-</body>
-</html>`;
-  }
-
-  function extFromMime(mime) {
-    if (mime.includes('png')) return 'png';
-    if (mime.includes('webp')) return 'webp';
-    if (mime.includes('gif')) return 'gif';
-    if (mime.includes('svg')) return 'svg';
-    return 'jpg';
-  }
-
-  async function exportZip() {
-    setStatus('正在建立 V9 草稿備份 ZIP…');
-    const zip = new JSZip();
-    const wrapper = {
-      version: STABLE_DRAFT_VERSION,
-      projectData: editor.getProjectData(),
-      baselineHashes: baselineHashesObject()
-    };
-    zip.file('editor-backup.json', JSON.stringify(wrapper, null, 2));
-    zip.file('備份說明.txt',
-`這是 CHINON V9 穩定內容編輯器草稿備份。
-
-它不包含整個正式網站，也不會用來覆蓋網站 HTML/CSS。
-用途：保留尚未發布的文字、圖片與個別樣式修改。
-
-匯入前，正式網站必須仍是同一個基準版本；否則 V9 會拒絕匯入，以避免把舊版面帶回網站。`);
-
-    const blob = await zip.generateAsync({type:'blob'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `chinon-v9-draft-${new Date().toISOString().slice(0,10)}.zip`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    setStatus('V9 草稿備份 ZIP 已下載。');
-  }
-
-  // -------- wire UI --------
-  $('#btnAddText').addEventListener('click',addText);
-  $('#btnAddHeading').addEventListener('click',addHeading);
-  $('#btnAddButton').addEventListener('click',addButton);
-  $('#btnAddLinkText').addEventListener('click',addLinkText);
-  $('#btnAddSection').addEventListener('click',addSection);
-  $('#btnAddColumns').addEventListener('click',()=>addColumns(2));
-  $('#btnAddThreeColumns').addEventListener('click',()=>addColumns(3));
-  $('#btnAddDivider').addEventListener('click',addDivider);
-  $('#btnAddSpacer').addEventListener('click',addSpacer);
-  $('#btnAddShape').addEventListener('click',addShape);
-  $('#btnAddVideo').addEventListener('click',addVideo);
-
-  $('#btnAddImage').addEventListener('click',()=>$('#imagePicker').click());
-  $('#imagePicker').addEventListener('change',(e)=>{ addImageFile(e.target.files?.[0]); e.target.value=''; });
-
-  $('#btnReplaceImage').addEventListener('click',()=>$('#replaceImagePicker').click());
-  $('#replaceImagePicker').addEventListener('change',(e)=>{ replaceImageFile(e.target.files?.[0]); e.target.value=''; });
-
-  $('#btnBackgroundImage').addEventListener('click',()=>$('#backgroundImagePicker').click());
-  $('#backgroundImagePicker').addEventListener('change',(e)=>{ setBackgroundImageFile(e.target.files?.[0]); e.target.value=''; });
-
-  $('#btnImgLeft').addEventListener('click',()=>alignSelectedImage('left'));
-  $('#btnImgCenter').addEventListener('click',()=>alignSelectedImage('center'));
-  $('#btnImgRight').addEventListener('click',()=>alignSelectedImage('right'));
-  $('#btnBgCenter').addEventListener('click',centerSelectedBackground);
-
-  $('#btnPixelMove').addEventListener('click',armMove);
-  $('#btnResetMove').addEventListener('click',restoreMove);
-  $('#btnResetPagePosition').addEventListener('click',resetCurrentPagePositions);
-  $('#btnLayerUp').addEventListener('click',()=>changeLayer(1));
-  $('#btnLayerDown').addEventListener('click',()=>changeLayer(-1));
-  $('#btnLayerTop').addEventListener('click',()=>changeLayer(0,true));
-  $('#btnResize').addEventListener('click',enableResize);
-  $('#btnDuplicate').addEventListener('click',duplicateSelected);
-  $('#btnDelete').addEventListener('click',deleteSelected);
-
-  $('#btnLink').addEventListener('click',openLinkDialog);
-  $('#btnApplyLink').addEventListener('click',(e)=>{ e.preventDefault(); applyLink(); $('#linkDialog').close(); });
-  $('#btnUnlink').addEventListener('click',unlinkSelected);
-
-  $('#btnQuickStyle').addEventListener('click',openQuickStyle);
-  $('#btnApplyQuickStyle').addEventListener('click',(e)=>{ e.preventDefault(); applyQuickStyle(); $('#quickStyleDialog').close(); });
-  $('#quickBold').addEventListener('click',()=>toggleTextStyle('font-weight','700','400'));
-  $('#quickItalic').addEventListener('click',()=>toggleTextStyle('font-style','italic','normal'));
-  $('#quickUnderline').addEventListener('click',()=>toggleTextStyle('text-decoration','underline','none'));
-
-  $('#btnAddPage').addEventListener('click',addPage);
-  $('#btnRenamePage').addEventListener('click',renamePage);
-  $('#btnDeletePage').addEventListener('click',deletePage);
-  $('#pageSelect').addEventListener('change',(e)=>{
-    const p = editor.Pages.getAll().find(x=>pageFile(x)===e.target.value);
-    if (p) editor.Pages.select(p);
+  updateHandle();
+}
+function endResize(){
+  const doc=iframe.contentDocument;
+  doc.removeEventListener('pointermove',onResizeMove,true);
+  resizeState=null; markDirty();
+}
+
+/* ---------- images ---------- */
+function fileToDataUrl(file){
+  return new Promise((resolve,reject)=>{
+    const r=new FileReader(); r.onload=()=>resolve(r.result); r.onerror=reject; r.readAsDataURL(file);
   });
+}
+function findInsertContainer(){
+  if(!selected) return iframe.contentDocument.body;
+  return selected.closest('section,header,footer,main,article,.container,div') || selected.parentElement || iframe.contentDocument.body;
+}
+async function addImage(file){
+  if(!file) return;
+  pushUndo();
+  const src=await fileToDataUrl(file);
+  const doc=iframe.contentDocument;
+  const img=doc.createElement('img');
+  img.src=src;
+  img.alt='';
+  img.setAttribute(ADDED_ATTR,'1');
+  img.style.cssText='display:block;width:min(320px,90%);height:auto;margin:24px auto;object-fit:contain;';
+  const container=findInsertContainer();
+  if(selected && selected.parentElement===container) selected.insertAdjacentElement('afterend',img);
+  else container.appendChild(img);
+  selectElement(img); markDirty();
+  img.scrollIntoView({block:'center',behavior:'smooth'});
+}
+async function replaceImage(file){
+  if(!file || !selected || selected.tagName!=='IMG'){ alert('請先點選要更換的圖片。'); return; }
+  pushUndo(); selected.src=await fileToDataUrl(file); markDirty(); updateHandle();
+}
+async function setBackground(file){
+  if(!file || !selected){ alert('請先點選要設定背景的區塊。'); return; }
+  pushUndo(); const src=await fileToDataUrl(file);
+  selected.style.backgroundImage=`url("${src}")`;
+  if(!selected.style.backgroundPosition) selected.style.backgroundPosition='center center';
+  if(!selected.style.backgroundSize) selected.style.backgroundSize='cover';
+  selected.style.backgroundRepeat='no-repeat';
+  markDirty();
+}
+function alignImage(mode){
+  if(!selected || selected.tagName!=='IMG'){ alert('請先點選圖片。'); return; }
+  pushUndo();
+  selected.style.display='block';
+  if(mode==='left'){ selected.style.marginLeft='0'; selected.style.marginRight='auto'; }
+  if(mode==='center'){ selected.style.marginLeft='auto'; selected.style.marginRight='auto'; }
+  if(mode==='right'){ selected.style.marginLeft='auto'; selected.style.marginRight='0'; }
+  selected.style.objectPosition='center center';
+  markDirty();
+}
 
-  $('#btnUndo').addEventListener('click',()=>editor.UndoManager.undo());
-  $('#btnRedo').addEventListener('click',()=>editor.UndoManager.redo());
+/* ---------- float drag ---------- */
+function floatSelected(){
+  if(!selected){ alert('請先選取圖片或物件。'); return; }
+  if(selected.hasAttribute(FLOAT_ATTR)) return;
+  pushUndo();
+  const doc=iframe.contentDocument;
+  const parent=selected.parentElement;
+  if(!parent) return;
+  const r=selected.getBoundingClientRect(), pr=parent.getBoundingClientRect();
+  const id='float-'+Date.now().toString(36);
+  const ph=doc.createElement(selected.tagName==='IMG'?'span':'div');
+  ph.setAttribute(PLACEHOLDER_ATTR,id);
+  ph.style.display=iframe.contentWindow.getComputedStyle(selected).display==='inline'?'inline-block':'block';
+  ph.style.width=`${r.width}px`; ph.style.height=`${r.height}px`; ph.style.visibility='hidden';
+  selected.insertAdjacentElement('beforebegin',ph);
 
-  $('#btnCode').addEventListener('click',openCode);
-  $('#btnCloseCode').addEventListener('click',()=>$('#codeDialog').close());
-  $('#btnApplyCode').addEventListener('click',applyCode);
-  $('#btnCopyHtml').addEventListener('click',()=>copyText($('#htmlCode').value,'HTML'));
-  $('#btnCopyCss').addEventListener('click',()=>copyText($('#cssCode').value,'CSS'));
+  if(iframe.contentWindow.getComputedStyle(parent).position==='static') parent.style.position='relative';
+  selected.setAttribute(FLOAT_ATTR,id);
+  selected.style.position='absolute';
+  selected.style.left=`${r.left-pr.left+parent.scrollLeft}px`;
+  selected.style.top=`${r.top-pr.top+parent.scrollTop}px`;
+  selected.style.width=`${r.width}px`;
+  selected.style.height=`${r.height}px`;
+  selected.style.margin='0';
+  selected.style.zIndex='20';
+  markDirty(); updateHandle();
+}
+function unfloatSelected(){
+  if(!selected || !selected.hasAttribute(FLOAT_ATTR)){ alert('目前選取物件不是自由擺放物件。'); return; }
+  pushUndo();
+  const id=selected.getAttribute(FLOAT_ATTR);
+  const doc=iframe.contentDocument;
+  doc.querySelector(`[${PLACEHOLDER_ATTR}="${CSS.escape(id)}"]`)?.remove();
+  selected.removeAttribute(FLOAT_ATTR);
+  ['position','left','top','zIndex','margin','height'].forEach(p=>selected.style[p]='');
+  markDirty(); updateHandle();
+}
+function startFloatDrag(e,el){
+  e.preventDefault(); e.stopPropagation();
+  selectElement(el); pushUndo();
+  const left=parseFloat(el.style.left)||0, top=parseFloat(el.style.top)||0;
+  dragState={el,startX:e.clientX,startY:e.clientY,left,top};
+  const doc=iframe.contentDocument;
+  doc.addEventListener('pointermove',onFloatMove,true);
+  doc.addEventListener('pointerup',endFloatDrag,{once:true,capture:true});
+}
+function onFloatMove(e){
+  if(!dragState) return;
+  dragState.el.style.left=`${dragState.left+(e.clientX-dragState.startX)}px`;
+  dragState.el.style.top=`${dragState.top+(e.clientY-dragState.startY)}px`;
+  updateHandle();
+}
+function endFloatDrag(){
+  iframe.contentDocument.removeEventListener('pointermove',onFloatMove,true);
+  dragState=null; markDirty();
+}
+function deleteAdded(){
+  if(!selected || !selected.hasAttribute(ADDED_ATTR)){ alert('為避免誤刪官網原本結構，這裡只能刪除你在 V10 新增的物件。'); return; }
+  if(!confirm('刪除這個新增物件？')) return;
+  pushUndo();
+  const id=selected.getAttribute(FLOAT_ATTR);
+  if(id) iframe.contentDocument.querySelector(`[${PLACEHOLDER_ATTR}="${CSS.escape(id)}"]`)?.remove();
+  const next=selected.parentElement; selected.remove(); selected=null;
+  $('#selectedLabel').textContent='尚未選取'; markDirty();
+}
 
-  $('#btnSave').addEventListener('click',async()=>{
-    try {
-      await saveDraft();
-    } catch (error) {
-      console.error(error);
-      setStatus(`草稿儲存失敗：${error.message}。請先下載備份 ZIP。`);
-      alert(`草稿儲存失敗：${error.message}\n\n請先按「下載備份 ZIP」保留目前修改。`);
+/* ---------- link ---------- */
+function applyLink(){
+  if(!selected) return;
+  const url=$('#linkUrl').value.trim();
+  if(!url) return;
+  pushUndo();
+  if(selected.tagName==='A') selected.setAttribute('href',url);
+  else{
+    const doc=iframe.contentDocument;
+    const a=doc.createElement('a'); a.href=url;
+    selected.replaceWith(a); a.appendChild(selected); selected=a;
+  }
+  markDirty();
+}
+
+/* ---------- publish snapshot ---------- */
+function extFromMime(mime){
+  if(mime.includes('png')) return 'png';
+  if(mime.includes('webp')) return 'webp';
+  if(mime.includes('gif')) return 'gif';
+  if(mime.includes('svg')) return 'svg';
+  return 'jpg';
+}
+function bytesToBase64(bytes){
+  let s=''; const chunk=0x8000;
+  for(let i=0;i<bytes.length;i+=chunk) s+=String.fromCharCode(...bytes.subarray(i,i+chunk));
+  return btoa(s);
+}
+async function dataUrlToAsset(dataUrl){
+  const res=await fetch(dataUrl); const blob=await res.blob();
+  return {ext:extFromMime(blob.type||''),base64:bytesToBase64(new Uint8Array(await blob.arrayBuffer()))};
+}
+async function replaceDataUrls(doc,assetFiles,state){
+  const imgs=[...doc.querySelectorAll('img[src^="data:"]')];
+  for(const img of imgs){
+    const a=await dataUrlToAsset(img.getAttribute('src'));
+    const path=`assets/uploads/v10-${state.id}-${state.n++}.${a.ext}`;
+    assetFiles.set(path,{content:a.base64,encoding:'base64'});
+    img.setAttribute('src',path);
+  }
+  const styled=[...doc.querySelectorAll('[style*="data:"]')];
+  const rx=/url\(\s*(['"]?)(data:[^)'"]+)\1\s*\)/ig;
+  for(const el of styled){
+    let st=el.getAttribute('style')||''; const matches=[...st.matchAll(rx)];
+    for(const m of matches){
+      const a=await dataUrlToAsset(m[2]);
+      const path=`assets/uploads/v10-${state.id}-${state.n++}.${a.ext}`;
+      assetFiles.set(path,{content:a.base64,encoding:'base64'});
+      st=st.replace(m[2],path);
     }
+    el.setAttribute('style',st);
+  }
+}
+function stripEditorArtifacts(doc){
+  doc.getElementById(EDITOR_STYLE_ID)?.remove();
+  doc.getElementById(HANDLE_ID)?.remove();
+  doc.querySelector('base[data-chinon-v10-base]')?.remove();
+  doc.querySelectorAll(`[${SELECT_ATTR}]`).forEach(el=>el.removeAttribute(SELECT_ATTR));
+  doc.querySelectorAll('[contenteditable]').forEach(el=>el.removeAttribute('contenteditable'));
+  doc.querySelectorAll('[data-chinon-v10-editing]').forEach(el=>el.removeAttribute('data-chinon-v10-editing'));
+}
+function serializeDoc(doc){ return '<!doctype html>\n'+doc.documentElement.outerHTML; }
+function rewritePreviewPaths(doc){
+  const pageNames=new Set(SITE_PAGES.map(x=>x.file));
+  doc.querySelectorAll('a[href]').forEach(a=>{
+    const href=a.getAttribute('href')||'';
+    if(pageNames.has(href)) a.setAttribute('href',`/preview/${href}`);
+    else if(href.startsWith('./') && pageNames.has(href.slice(2))) a.setAttribute('href',`/preview/${href.slice(2)}`);
   });
-
-  $('#btnReload').addEventListener('click',()=>loadLive({ask:true}));
-  $('#btnPublish').addEventListener('click',openPublishDialog);
-  $('#btnDoPublish').addEventListener('click',publishToGithub);
-  $('#btnForgetToken').addEventListener('click',()=>{
-    sessionStorage.removeItem(PUBLISH_TOKEN_KEY);
-    $('#publishToken').value = '';
-    publishProgress('目前分頁中的 GitHub Token 已清除。');
-  });
-  $('#btnImportBackup').addEventListener('click',()=>$('#backupFileInput').click());
-  $('#backupFileInput').addEventListener('change',async(event)=>{
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      setStatus('正在匯入備份…');
-      await importBackupFile(file);
-    } catch (error) {
-      console.error(error);
-      setStatus(`匯入備份失敗：${error.message}`);
-      alert(`匯入備份失敗：${error.message}`);
-    } finally {
-      event.target.value = '';
-    }
-  });
-
-  $('#btnExport').addEventListener('click',exportZip);
-
-  document.querySelectorAll('[data-device]').forEach(btn=>{
-    btn.addEventListener('click',()=>{
-      editor.setDevice(btn.dataset.device);
-      setStatus(`預覽：${btn.textContent}`);
+  const attrs=[['img','src'],['source','src'],['video','poster'],['script','src'],['link','href']];
+  attrs.forEach(([sel,attr])=>{
+    doc.querySelectorAll(`${sel}[${attr}]`).forEach(el=>{
+      const v=el.getAttribute(attr)||'';
+      if(/^assets\//.test(v)||v==='styles.css'||v==='main.js') el.setAttribute(attr,'/'+v);
+      if(/^\.\/assets\//.test(v)) el.setAttribute(attr,'/'+v.slice(2));
     });
   });
-
-  editor.on('page:select',()=>{
-    removeTextResizeOverlay();
-    refreshPages();
-    requestAnimationFrame(ensureCanvasEnvironment);
-    setTimeout(ensureCanvasEnvironment, 80);
+  doc.querySelectorAll('[style]').forEach(el=>{
+    const st=el.getAttribute('style')||'';
+    el.setAttribute('style',st.replace(/url\((['"]?)(assets\/)/g,'url($1/$2'));
   });
+}
+async function buildPreviewSnapshot(){
+  captureCurrentPage();
+  const previewFiles=new Map();
+  const productionFiles=new Map();
+  const assetFiles=new Map();
+  const assetState={id:Date.now().toString(36),n:1};
+  const dirtyFiles=[];
 
-  // GrapesJS 重新建立 iframe/frame 時，base 與 :root 變數可能會被清掉。
-  // 每次 frame load 都補回來，避免 Logo/按鈕樣式「一下有、一下不見」。
-  editor.on('canvas:frame:load',()=>{
-    ensureCanvasEnvironment();
-    requestAnimationFrame(ensureCanvasEnvironment);
-  });
-  let autoTextResizeTimer = null;
+  for(const page of SITE_PAGES){
+    const fresh=await fetchLive(page.file);
+    const freshHash=await hashText(fresh);
+    const draft=pageDrafts.get(page.file);
+    let source=fresh;
+    let dirty=false;
 
-  editor.on('component:selected',(c)=>{
-    enhanceColorPickers();
-    requestAnimationFrame(() => translatePanelText(document));
-    if (moveState.component && moveState.component !== c) stopMove();
-
-    if (autoTextResizeTimer) {
-      clearTimeout(autoTextResizeTimer);
-      autoTextResizeTimer = null;
+    if(draft?.dirty){
+      if(draft.baseHash!==freshHash){
+        throw new Error(`${page.name} 的正式網站在你編輯期間已更新。為避免覆蓋新版，請先重新載入官網。`);
+      }
+      source=draft.html; dirty=true; dirtyFiles.push(page.file);
     }
 
-    const target = textResizeTarget(c);
+    const prodDoc=new DOMParser().parseFromString(source,'text/html');
+    stripEditorArtifacts(prodDoc);
+    await replaceDataUrls(prodDoc,assetFiles,assetState);
+    const prodHtml=serializeDoc(prodDoc);
 
-    if (target) {
-      // 文字不必再按按鈕：選到文字後直接顯示 Canva 式控制框。
-      autoTextResizeTimer = setTimeout(()=>{
-        if (editor.getSelected() !== c && editor.getSelected() !== target) return;
-        openCanvaTextResize(editor.getSelected() || target);
-      }, 30);
+    const previewDoc=new DOMParser().parseFromString(prodHtml,'text/html');
+    rewritePreviewPaths(previewDoc);
+    const previewHtml=serializeDoc(previewDoc);
 
-      const name = target.getName?.() || target.get('tagName') || '文字';
-      setStatus(`已選取：${name}。直接拖四角放大/縮小字體；拖左右只改文字框寬度。`);
-      return;
-    }
+    previewFiles.set(`preview/${page.file}`,{content:previewHtml,encoding:'utf-8'});
+    if(dirty) productionFiles.set(page.file,{content:prodHtml,encoding:'utf-8'});
+  }
+  for(const [path,file] of assetFiles) previewFiles.set(path,file);
 
-    if (textResizeState.component) {
-      removeTextResizeOverlay();
-    }
+  return {
+    createdAt:Date.now(),
+    dirtyFiles,
+    previewFiles:[...previewFiles.entries()],
+    productionFiles:[...productionFiles.entries()],
+    assetPaths:[...assetFiles.keys()]
+  };
+}
 
-    const name = c.getName?.() || c.get('tagName') || '元件';
-    setStatus(`已選取：${name}。V9 只發布此元素本身的安全修改，不會重寫整頁版面。`);
-  });
-
-  editor.on('load',async()=>{
-    enableChineseRightPanel();
-    enhanceColorPickers();
-    ensureCanvasBase();
-
-    let loaded = [];
-    try {
-      loaded = await prepareLiveBaseline();
-    } catch (error) {
-      console.error(error);
-      setStatus(`讀取正式網站失敗：${error.message}`);
-    }
-
-    let loadedDraft = false;
-    try {
-      loadedDraft = await restoreDraft();
-    } catch (error) {
-      console.warn('V9 草稿讀取失敗', error);
-    }
-
-    if (!loadedDraft) {
-      applyPreparedLivePages(loaded);
-      try { await saveDraft({silent:true}); } catch {}
-    } else {
-      requestAnimationFrame(ensureCanvasEnvironment);
-      setStatus('V9.0 已載入相同正式網站基準上的本機草稿。');
-    }
-
-    refreshPages();
-    editor.on('update', scheduleDraftSave);
-
-    // 穩定模式：結構性按鈕維持停用，避免整頁重寫。
-    document.querySelectorAll('.stable-disabled').forEach(btn => btn.disabled = true);
-
-    if (!loadedDraft) {
-      setStatus('V9.0 已載入正式網站。固定版面模式已啟用；可安全修改文字、圖片、連結與個別樣式。');
+/* ---------- GitHub API ---------- */
+function publishProgress(msg,type=''){
+  const el=$('#publishProgress'); el.textContent=msg; el.className='publish-progress'+(type?' '+type:'');
+}
+function loadPublishSettings(){
+  let s={}; try{s=JSON.parse(localStorage.getItem(PUBLISH_SETTINGS_KEY)||'{}')}catch{}
+  $('#publishOwner').value=s.owner||'TSRCBC';
+  $('#publishRepo').value=s.repo||'TSRCBC.github.io';
+  $('#publishBranch').value=s.branch||'main';
+  const localToken=localStorage.getItem(TOKEN_LOCAL_KEY)||'';
+  const sessionToken=sessionStorage.getItem(TOKEN_SESSION_KEY)||'';
+  $('#publishToken').value=localToken||sessionToken;
+  $('#rememberToken').checked=!!localToken;
+}
+function savePublishSettings(){
+  const owner=$('#publishOwner').value.trim(), repo=$('#publishRepo').value.trim(), branch=$('#publishBranch').value.trim()||'main';
+  const token=$('#publishToken').value.trim(), remember=$('#rememberToken').checked;
+  localStorage.setItem(PUBLISH_SETTINGS_KEY,JSON.stringify({owner,repo,branch}));
+  if(token){
+    if(remember){ localStorage.setItem(TOKEN_LOCAL_KEY,token); sessionStorage.removeItem(TOKEN_SESSION_KEY); }
+    else{ sessionStorage.setItem(TOKEN_SESSION_KEY,token); localStorage.removeItem(TOKEN_LOCAL_KEY); }
+  }
+  return {owner,repo,branch,token};
+}
+async function githubApi(url,token,options={}){
+  const res=await fetch(url,{
+    ...options,
+    headers:{
+      Accept:'application/vnd.github+json',
+      'X-GitHub-Api-Version':'2022-11-28',
+      Authorization:`Bearer ${token}`,
+      ...(options.headers||{})
     }
   });
+  if(!res.ok){
+    let detail=''; try{detail=(await res.json())?.message||''}catch{}
+    if(res.status===401) throw new Error('GitHub Token 無效或已過期。');
+    if(res.status===403) throw new Error('GitHub Token 沒有 Contents Read and write 權限。');
+    throw new Error(`GitHub API ${res.status}：${detail}`);
+  }
+  return res.status===204?null:res.json();
+}
+async function createBlob(owner,repo,token,file){
+  return githubApi(`https://api.github.com/repos/${owner}/${repo}/git/blobs`,token,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({content:file.content,encoding:file.encoding==='base64'?'base64':'utf-8'})
+  });
+}
+async function commitFiles({owner,repo,branch,token,files,message,expectedHead=null}){
+  const ref=await githubApi(`https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${branch}`,token);
+  const parentSha=ref.object.sha;
+  if(expectedHead && parentSha!==expectedHead) throw new Error('GitHub 在你確認測試版之後又有新的 Commit。為避免覆蓋別的更新，正式套用已停止，請重新發布測試版。');
+  const parent=await githubApi(`https://api.github.com/repos/${owner}/${repo}/git/commits/${parentSha}`,token);
+  const entries=[]; let done=0;
+  for(const [path,file] of files){
+    const blob=await createBlob(owner,repo,token,file);
+    entries.push({path,mode:'100644',type:'blob',sha:blob.sha});
+    done++; publishProgress(`正在上傳 ${done}/${files.length}：${path}`);
+  }
+  const tree=await githubApi(`https://api.github.com/repos/${owner}/${repo}/git/trees`,token,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({base_tree:parent.tree.sha,tree:entries})
+  });
+  const commit=await githubApi(`https://api.github.com/repos/${owner}/${repo}/git/commits`,token,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({message,tree:tree.sha,parents:[parentSha]})
+  });
+  await githubApi(`https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${branch}`,token,{
+    method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({sha:commit.sha,force:false})
+  });
+  return commit.sha;
+}
+
+let publishMode='preview';
+function openPublish(mode){
+  publishMode=mode; loadPublishSettings();
+  $('#publishTitle').textContent=mode==='preview'?'發布測試版':'套用正式網站';
+  $('#publishIntro').textContent=mode==='preview'
+    ? '這一步只更新 /preview/ 測試站，不會改正式首頁。'
+    : '這一步只會使用你剛剛已確認的測試版快照，套用到正式網站。';
+  $('#btnDoPublish').textContent=mode==='preview'?'發布測試版':'套用正式網站';
+  publishProgress(mode==='preview'?'正式網站不會在這一步變更。':'請先確認測試版看起來完全正確。');
+  $('#publishDialog').showModal();
+}
+async function doPublish(){
+  const btn=$('#btnDoPublish');
+  const settings=savePublishSettings();
+  if(!settings.owner||!settings.repo||!settings.branch||!settings.token){ publishProgress('請完整填寫 GitHub 發布資料。','error'); return; }
+  btn.disabled=true;
+  try{
+    if(publishMode==='preview'){
+      publishProgress('正在建立與目前畫面相同的測試快照…');
+      const snap=await buildPreviewSnapshot();
+      const files=snap.previewFiles;
+      const sha=await commitFiles({
+        ...settings,files,
+        message:`Preview CHINON V10 ${new Date().toLocaleString('zh-TW')}`
+      });
+      snap.previewCommitSha=sha;
+      await dbPut(PREVIEW_SNAPSHOT_KEY,snap);
+      latestPreviewCommit=sha;
+      latestPreviewUrl=`${location.origin}/preview/index.html?v=${Date.now()}`;
+      $('#btnOpenPreview').disabled=false;
+      $('#btnPromote').disabled=snap.dirtyFiles.length===0;
+      publishProgress(`測試版已送出。\n變更頁面：${snap.dirtyFiles.join('、')||'無'}\nCommit：${sha.slice(0,7)}\n\n等 GitHub Pages 部署完成後，按「② 開啟測試版」檢查。`,'ok');
+      setStatus('測試版已發布。正式網站尚未變更。');
+    }else{
+      const snap=await dbGet(PREVIEW_SNAPSHOT_KEY);
+      if(!snap?.previewCommitSha) throw new Error('找不到可套用的測試版。請先重新發布測試版。');
+      if(!confirm('你已經實際打開測試版，確認桌機／平板／手機都正常嗎？\n\n確定後才會修改正式網站。')) return;
+      const files=snap.productionFiles||[];
+      if(!files.length){ throw new Error('測試版沒有偵測到正式內容變更。'); }
+      const sha=await commitFiles({
+        ...settings,files,
+        message:`Promote CHINON V10 preview to live ${new Date().toLocaleString('zh-TW')}`,
+        expectedHead:snap.previewCommitSha
+      });
+      publishProgress(`正式網站已套用「剛剛測試版」的同一份內容快照。\nCommit：${sha.slice(0,7)}\n\nGitHub Pages 需要一點時間重新部署。`,'ok');
+      setStatus('正式網站已套用測試版快照。');
+      $('#btnPromote').disabled=true;
+    }
+  }catch(err){
+    console.error(err); publishProgress(`失敗：${err.message}`,'error'); setStatus(`發布失敗：${err.message}`);
+  }finally{ btn.disabled=false; }
+}
+
+/* ---------- events ---------- */
+iframe.addEventListener('load',()=>{
+  const doc=iframe.contentDocument;
+  try{
+    injectEditorUi(doc);
+    selected=null; $('#selectedLabel').textContent='尚未選取';
+    setStatus(`${SITE_PAGES.find(x=>x.file===currentFile)?.name||currentFile} 已載入。你現在看到的就是同一份網站 DOM。`);
+  }catch(err){ console.error(err); setStatus(`畫布初始化失敗：${err.message}`); }
+});
+$('#pageSelect').addEventListener('change',e=>loadPage(e.target.value));
+$('#btnReload').addEventListener('click',reloadCurrentFromLive);
+$('#btnSave').addEventListener('click',saveDraftState);
+$('#btnUndo').addEventListener('click',undo);
+$('#btnRedo').addEventListener('click',redo);
+
+$('#btnAddImage').addEventListener('click',()=>$('#addImageInput').click());
+$('#addImageInput').addEventListener('change',async e=>{ await addImage(e.target.files?.[0]); e.target.value=''; });
+$('#btnReplaceImage').addEventListener('click',()=>$('#replaceImageInput').click());
+$('#replaceImageInput').addEventListener('change',async e=>{ await replaceImage(e.target.files?.[0]); e.target.value=''; });
+$('#btnBackground').addEventListener('click',()=>$('#backgroundInput').click());
+$('#backgroundInput').addEventListener('change',async e=>{ await setBackground(e.target.files?.[0]); e.target.value=''; });
+
+$('#btnFloat').addEventListener('click',floatSelected);
+$('#btnUnfloat').addEventListener('click',unfloatSelected);
+$('#btnDeleteAdded').addEventListener('click',deleteAdded);
+$('#btnImgLeft').addEventListener('click',()=>alignImage('left'));
+$('#btnImgCenter').addEventListener('click',()=>alignImage('center'));
+$('#btnImgRight').addEventListener('click',()=>alignImage('right'));
+$('#btnApplyLink').addEventListener('click',applyLink);
+
+[
+ ['fontFamily','fontFamily'],['fontSize','fontSize'],['fontWeight','fontWeight'],
+ ['textAlign','textAlign'],['lineHeight','lineHeight'],['letterSpacing','letterSpacing'],
+ ['textShadow','textShadow'],['widthCtl','width'],['marginTop','marginTop'],
+ ['marginBottom','marginBottom'],['paddingTop','paddingTop'],['paddingBottom','paddingBottom'],
+ ['objectFit','objectFit'],['objectPosition','objectPosition'],['backgroundPosition','backgroundPosition'],
+ ['backgroundSize','backgroundSize'],['borderRadius','borderRadius'],['boxShadow','boxShadow']
+].forEach(([id,prop])=>bindSelect(id,prop));
+$('#textColor').addEventListener('change',e=>applyStyle('color',e.target.value));
+$('#backgroundColor').addEventListener('change',e=>applyStyle('backgroundColor',e.target.value));
+
+document.querySelectorAll('.devices button').forEach(btn=>btn.addEventListener('click',()=>{
+  document.querySelectorAll('.devices button').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const w=+btn.dataset.width;
+  frameBox.style.width=`min(${w}px,100%)`;
+}));
+
+$('#btnPreviewPublish').addEventListener('click',()=>openPublish('preview'));
+$('#btnPromote').addEventListener('click',()=>openPublish('promote'));
+$('#btnDoPublish').addEventListener('click',doPublish);
+$('#btnOpenPreview').addEventListener('click',()=>{
+  const url=latestPreviewUrl||`${location.origin}/preview/index.html?v=${Date.now()}`;
+  window.open(url,'_blank','noopener');
+});
+
+/* ---------- startup ---------- */
+(async()=>{
+  try{
+    await restoreDraftState();
+    const preview=await dbGet(PREVIEW_SNAPSHOT_KEY);
+    if(preview?.previewCommitSha){
+      latestPreviewCommit=preview.previewCommitSha;
+      latestPreviewUrl=`${location.origin}/preview/index.html?v=${Date.now()}`;
+      $('#btnOpenPreview').disabled=false;
+    }
+    await loadPage('index.html');
+  }catch(err){
+    console.error(err); setStatus(`啟動失敗：${err.message}`);
+  }
+})();
 })();
