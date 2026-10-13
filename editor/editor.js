@@ -92,6 +92,7 @@ let undoStack = [];
 let redoStack = [];
 let latestPreviewUrl = '';
 let latestPreviewCommit = '';
+let latestPreviewId = '';
 
 const EDITOR_STYLE_ID = 'chinon-v10-editor-style';
 const HANDLE_ID = 'chinon-v10-resize-handle';
@@ -630,6 +631,13 @@ async function buildPreviewSnapshot(){
 
     const previewDoc=new DOMParser().parseFromString(prodHtml,'text/html');
     rewritePreviewPaths(previewDoc);
+    let marker=previewDoc.head.querySelector('meta[name="chinon-preview-id"]');
+    if(!marker){
+      marker=previewDoc.createElement('meta');
+      marker.name='chinon-preview-id';
+      previewDoc.head.appendChild(marker);
+    }
+    marker.content=assetState.id;
     const previewHtml=serializeDoc(previewDoc);
 
     previewFiles.set(`preview/${page.file}`,{content:previewHtml,encoding:'utf-8'});
@@ -639,11 +647,66 @@ async function buildPreviewSnapshot(){
 
   return {
     createdAt:Date.now(),
+    previewId:assetState.id,
     dirtyFiles,
     previewFiles:[...previewFiles.entries()],
     productionFiles:[...productionFiles.entries()],
     assetPaths:[...assetFiles.keys()]
   };
+}
+
+
+/* ---------- GitHub Pages preview readiness ---------- */
+async function checkPreviewReady(previewId){
+  if(!previewId) return false;
+  try{
+    const url=`${location.origin}/preview/index.html?deployCheck=${Date.now()}`;
+    const res=await fetch(url,{cache:'no-store'});
+    if(!res.ok) return false;
+    const text=await res.text();
+    return text.includes(`name="chinon-preview-id" content="${previewId}"`) ||
+           text.includes(`content="${previewId}" name="chinon-preview-id"`);
+  }catch{
+    return false;
+  }
+}
+async function waitForPreviewReady(previewId,{timeoutMs=120000,intervalMs=3000}={}){
+  const start=Date.now();
+  let attempt=0;
+  while(Date.now()-start < timeoutMs){
+    attempt++;
+    const sec=Math.round((Date.now()-start)/1000);
+    publishProgress(`測試版已送到 GitHub。\n正在等待 GitHub Pages 部署完成… ${sec} 秒\n\n這段期間正式網站完全不會變更。`);
+    if(await checkPreviewReady(previewId)) return true;
+    await new Promise(r=>setTimeout(r,intervalMs));
+  }
+  return false;
+}
+async function verifyPreviewNow(){
+  if(!latestPreviewId){
+    const snap=await dbGet(PREVIEW_SNAPSHOT_KEY);
+    latestPreviewId=snap?.previewId||'';
+  }
+  if(!latestPreviewId){
+    alert('目前沒有可檢查的測試版，請先按「① 發布測試版」。');
+    return false;
+  }
+  $('#btnCheckPreview').disabled=true;
+  setStatus('正在檢查 GitHub Pages 測試版是否已部署…');
+  const ok=await checkPreviewReady(latestPreviewId);
+  $('#btnCheckPreview').disabled=false;
+  if(ok){
+    $('#btnOpenPreview').disabled=false;
+    const snap=await dbGet(PREVIEW_SNAPSHOT_KEY);
+    $('#btnPromote').disabled=!(snap?.dirtyFiles?.length);
+    setStatus('測試版部署完成，可以開啟檢查。正式網站尚未變更。');
+  }else{
+    $('#btnOpenPreview').disabled=true;
+    $('#btnPromote').disabled=true;
+    setStatus('測試版尚未部署完成。再等約 20～60 秒後按「檢查測試版部署」。');
+    alert('GitHub Pages 還沒有部署到這次測試版。\n\n再等 20～60 秒，然後按「檢查測試版部署」。\n正式網站沒有被修改。');
+  }
+  return ok;
 }
 
 /* ---------- GitHub API ---------- */
@@ -747,11 +810,22 @@ async function doPublish(){
       snap.previewCommitSha=sha;
       await dbPut(PREVIEW_SNAPSHOT_KEY,snap);
       latestPreviewCommit=sha;
+      latestPreviewId=snap.previewId;
       latestPreviewUrl=`${location.origin}/preview/index.html?v=${Date.now()}`;
-      $('#btnOpenPreview').disabled=false;
-      $('#btnPromote').disabled=snap.dirtyFiles.length===0;
-      publishProgress(`測試版已送出。\n變更頁面：${snap.dirtyFiles.join('、')||'無'}\nCommit：${sha.slice(0,7)}\n\n等 GitHub Pages 部署完成後，按「② 開啟測試版」檢查。`,'ok');
-      setStatus('測試版已發布。正式網站尚未變更。');
+      $('#btnCheckPreview').disabled=false;
+      $('#btnOpenPreview').disabled=true;
+      $('#btnPromote').disabled=true;
+
+      const ready=await waitForPreviewReady(snap.previewId);
+      if(ready){
+        $('#btnOpenPreview').disabled=false;
+        $('#btnPromote').disabled=snap.dirtyFiles.length===0;
+        publishProgress(`測試版部署完成！\n變更頁面：${snap.dirtyFiles.join('、')||'無'}\nCommit：${sha.slice(0,7)}\n\n現在可以按「② 開啟測試版」檢查。`,'ok');
+        setStatus('測試版已部署完成。正式網站尚未變更。');
+      }else{
+        publishProgress(`GitHub Commit 已成功，但 GitHub Pages 兩分鐘內仍未完成部署。\nCommit：${sha.slice(0,7)}\n\n請稍後按「檢查測試版部署」。正式網站沒有被修改。`,'error');
+        setStatus('GitHub 已收到測試版，但 Pages 尚未部署完成。正式網站沒有變更。');
+      }
     }else{
       const snap=await dbGet(PREVIEW_SNAPSHOT_KEY);
       if(!snap?.previewCommitSha) throw new Error('找不到可套用的測試版。請先重新發布測試版。');
@@ -821,9 +895,12 @@ document.querySelectorAll('.devices button').forEach(btn=>btn.addEventListener('
 }));
 
 $('#btnPreviewPublish').addEventListener('click',()=>openPublish('preview'));
+$('#btnCheckPreview').addEventListener('click',verifyPreviewNow);
 $('#btnPromote').addEventListener('click',()=>openPublish('promote'));
 $('#btnDoPublish').addEventListener('click',doPublish);
-$('#btnOpenPreview').addEventListener('click',()=>{
+$('#btnOpenPreview').addEventListener('click',async()=>{
+  const ok=await verifyPreviewNow();
+  if(!ok) return;
   const url=latestPreviewUrl||`${location.origin}/preview/index.html?v=${Date.now()}`;
   window.open(url,'_blank','noopener');
 });
@@ -835,8 +912,12 @@ $('#btnOpenPreview').addEventListener('click',()=>{
     const preview=await dbGet(PREVIEW_SNAPSHOT_KEY);
     if(preview?.previewCommitSha){
       latestPreviewCommit=preview.previewCommitSha;
+      latestPreviewId=preview.previewId||'';
       latestPreviewUrl=`${location.origin}/preview/index.html?v=${Date.now()}`;
-      $('#btnOpenPreview').disabled=false;
+      $('#btnCheckPreview').disabled=false;
+      const ready=await checkPreviewReady(latestPreviewId);
+      $('#btnOpenPreview').disabled=!ready;
+      $('#btnPromote').disabled=!(ready && preview?.dirtyFiles?.length);
     }
     await loadPage('index.html');
   }catch(err){

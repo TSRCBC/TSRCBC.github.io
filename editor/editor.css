@@ -94,3 +94,7 @@ dialog::backdrop{background:rgba(0,0,0,.68)}
   font-weight:400;
   margin-top:1px;
 }
+
+#btnCheckPreview{
+  border-color:#6c7e91;
+}
