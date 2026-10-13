@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const BUILD = 'V10.4 RC1';
+const BUILD = 'V10.6 CLEAN';
 const FONT_URL = 'https://fonts.googleapis.com/css2?family=Iansui&family=Klee+One:wght@400;600&family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&family=Noto+Serif+TC:wght@400;500;600;700;800;900&family=Yuji+Syuku&family=Zen+Kurenaido&display=swap';
 
 /* ---------- login ---------- */
@@ -147,7 +147,7 @@ async function dbPut(key,value){
 }
 async function persistDraftMap({silent=false}={}){
   const savedAt=Date.now();
-  const payload={version:1041,pages:[...pageDrafts.entries()],savedAt};
+  const payload={version:1050,pages:[...pageDrafts.entries()],savedAt};
   await dbPut(DRAFT_KEY,payload);
   if(!silent){
     const t=new Date(savedAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -324,7 +324,8 @@ function injectEditorUi(doc){
       border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,.35);
       z-index:2147483647;cursor:nwse-resize;display:none
     }
-    [${FLOAT_ATTR}="1"]{cursor:move!important}
+    [${FLOAT_ATTR}="1"]{cursor:move!important;touch-action:none!important;user-select:none!important;-webkit-user-select:none!important}
+    img[${FLOAT_ATTR}="1"]{-webkit-user-drag:none!important}
   `;
   doc.head.appendChild(style);
 
@@ -476,6 +477,29 @@ function endResize(){
   resizeState=null; markDirty();
 }
 
+
+/* ---------- Wix external image helper ---------- */
+let wixImageCursor = -1;
+function wixImagesOnPage(){
+  const doc=iframe.contentDocument;
+  if(!doc) return [];
+  return [...doc.querySelectorAll('img[src*="wixstatic.com"]')];
+}
+function findNextWixImage(){
+  const list=wixImagesOnPage();
+  if(!list.length){
+    wixImageCursor=-1;
+    setStatus('這一頁已經沒有 Wix 外部圖片。');
+    alert('這一頁已經沒有 Wix 外部圖片。');
+    return;
+  }
+  wixImageCursor=(wixImageCursor+1)%list.length;
+  const img=list[wixImageCursor];
+  selectElement(img);
+  img.scrollIntoView({behavior:'smooth',block:'center'});
+  setStatus(`本頁仍有 ${list.length} 張 Wix 圖片。現在選到第 ${wixImageCursor+1} 張；按「換圖片」上傳你的照片即可。`);
+}
+
 /* ---------- images ---------- */
 function fileToDataUrl(file){
   return new Promise((resolve,reject)=>{
@@ -548,78 +572,94 @@ function alignImage(mode){
 
 /* ---------- float drag ---------- */
 function floatSelected(){
-  if(!selected){ alert('請先選取圖片或物件。'); return; }
-  if(selected.hasAttribute(FLOAT_ATTR)) return;
+  if(!selected){ alert('請先選取要移動的圖片或物件。'); return; }
+  if(selected.closest?.('.site-header .brand') || selected.classList?.contains('menu-toggle')){
+    alert('網站 Logo／導覽核心元件不建議自由移動。請選其他圖片或內容。'); return;
+  }
+  if(selected.hasAttribute(FLOAT_ATTR)){
+    setStatus('此物件已是自由擺放模式。直接按住物件拖曳即可。');
+    return;
+  }
   pushUndo();
-  const doc=iframe.contentDocument;
-  const parent=selected.parentElement;
-  if(!parent) return;
-  const r=selected.getBoundingClientRect(), pr=parent.getBoundingClientRect();
   const id='float-'+Date.now().toString(36);
-  const ph=doc.createElement(selected.tagName==='IMG'?'span':'div');
-  ph.setAttribute(PLACEHOLDER_ATTR,id);
-  ph.style.display=iframe.contentWindow.getComputedStyle(selected).display==='inline'?'inline-block':'block';
-  ph.style.width=`${r.width}px`; ph.style.height=`${r.height}px`; ph.style.visibility='hidden';
-  selected.insertAdjacentElement('beforebegin',ph);
   selected.setAttribute(FLOAT_STYLE_BACKUP_ATTR,encodeURIComponent(selected.getAttribute('style')||''));
-  parent.setAttribute(FLOAT_PARENT_POS_BACKUP_ATTR,encodeURIComponent(parent.style.position||''));
-  if(iframe.contentWindow.getComputedStyle(parent).position==='static') parent.style.position='relative';
   selected.setAttribute(FLOAT_ATTR,id);
-  selected.style.position='absolute';
-  selected.style.left=`${r.left-pr.left+parent.scrollLeft}px`;
-  selected.style.top=`${r.top-pr.top+parent.scrollTop}px`;
-  selected.style.width=`${r.width}px`;
-  selected.style.height=`${r.height}px`;
-  selected.style.margin='0';
-  selected.style.zIndex='20';
+  selected.setAttribute('data-chinon-v10-drag-x','0');
+  selected.setAttribute('data-chinon-v10-drag-y','0');
+  selected.style.translate='0px 0px';
+  selected.style.touchAction='none';
+  selected.style.cursor='move';
+  if(selected.tagName==='IMG') selected.draggable=false;
   markDirty(); updateHandle();
+  setStatus('自由擺放已啟用：現在直接按住物件拖到你要的位置。');
 }
 function unfloatSelected(){
   if(!selected || !selected.hasAttribute(FLOAT_ATTR)){ alert('目前選取物件不是自由擺放物件。'); return; }
   pushUndo();
-  const id=selected.getAttribute(FLOAT_ATTR);
-  const doc=iframe.contentDocument;
-  const parent=selected.parentElement;
-  doc.querySelector(`[${PLACEHOLDER_ATTR}="${CSS.escape(id)}"]`)?.remove();
   const backup=decodeURIComponent(selected.getAttribute(FLOAT_STYLE_BACKUP_ATTR)||'');
   if(backup) selected.setAttribute('style',backup); else selected.removeAttribute('style');
   selected.removeAttribute(FLOAT_ATTR);
   selected.removeAttribute(FLOAT_STYLE_BACKUP_ATTR);
-  if(parent?.hasAttribute(FLOAT_PARENT_POS_BACKUP_ATTR)){
-    const p=decodeURIComponent(parent.getAttribute(FLOAT_PARENT_POS_BACKUP_ATTR)||'');
-    parent.style.position=p;
-    if(!parent.getAttribute('style')?.trim()) parent.removeAttribute('style');
-    parent.removeAttribute(FLOAT_PARENT_POS_BACKUP_ATTR);
-  }
+  selected.removeAttribute('data-chinon-v10-drag-x');
+  selected.removeAttribute('data-chinon-v10-drag-y');
+  if(selected.tagName==='IMG') selected.removeAttribute('draggable');
   markDirty(); updateHandle();
+  setStatus('已回到原本排版位置。');
 }
 function startFloatDrag(e,el){
+  if(e.button!==undefined && e.button!==0) return;
   e.preventDefault(); e.stopPropagation();
   selectElement(el); pushUndo();
-  const left=parseFloat(el.style.left)||0, top=parseFloat(el.style.top)||0;
-  dragState={el,startX:e.clientX,startY:e.clientY,left,top};
-  const doc=iframe.contentDocument;
+  const x=parseFloat(el.getAttribute('data-chinon-v10-drag-x'))||0;
+  const y=parseFloat(el.getAttribute('data-chinon-v10-drag-y'))||0;
+  dragState={el,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,x,y};
+  try{ el.setPointerCapture?.(e.pointerId); }catch{}
+  const doc=iframe.contentDocument, win=iframe.contentWindow;
   doc.addEventListener('pointermove',onFloatMove,true);
-  doc.addEventListener('pointerup',endFloatDrag,{once:true,capture:true});
+  win.addEventListener('pointermove',onFloatMove,true);
+  doc.addEventListener('pointerup',endFloatDrag,true);
+  win.addEventListener('pointerup',endFloatDrag,true);
+  doc.addEventListener('pointercancel',endFloatDrag,true);
+  win.addEventListener('pointercancel',endFloatDrag,true);
 }
 function onFloatMove(e){
   if(!dragState) return;
-  dragState.el.style.left=`${dragState.left+(e.clientX-dragState.startX)}px`;
-  dragState.el.style.top=`${dragState.top+(e.clientY-dragState.startY)}px`;
+  e.preventDefault?.();
+  const nx=dragState.x+(e.clientX-dragState.startX);
+  const ny=dragState.y+(e.clientY-dragState.startY);
+  dragState.el.setAttribute('data-chinon-v10-drag-x',String(nx));
+  dragState.el.setAttribute('data-chinon-v10-drag-y',String(ny));
+  dragState.el.style.translate=`${nx.toFixed(1)}px ${ny.toFixed(1)}px`;
   updateHandle();
 }
-function endFloatDrag(){
-  iframe.contentDocument.removeEventListener('pointermove',onFloatMove,true);
+function endFloatDrag(e){
+  if(!dragState) return;
+  const {el,pointerId}=dragState;
+  const doc=iframe.contentDocument, win=iframe.contentWindow;
+  doc.removeEventListener('pointermove',onFloatMove,true);
+  win.removeEventListener('pointermove',onFloatMove,true);
+  doc.removeEventListener('pointerup',endFloatDrag,true);
+  win.removeEventListener('pointerup',endFloatDrag,true);
+  doc.removeEventListener('pointercancel',endFloatDrag,true);
+  win.removeEventListener('pointercancel',endFloatDrag,true);
+  try{ el.releasePointerCapture?.(pointerId); }catch{}
   dragState=null; markDirty();
+  setStatus('位置已移動並自動儲存草稿。');
 }
 function deleteAdded(){
-  if(!selected || !selected.hasAttribute(ADDED_ATTR)){ alert('為避免誤刪官網原本結構，這裡只能刪除你在 V10 新增的物件。'); return; }
-  if(!confirm('刪除這個新增物件？')) return;
+  if(!selected){ alert('請先選取要刪除的圖片或新增物件。'); return; }
+  const isImage=selected.tagName==='IMG';
+  const isAdded=selected.hasAttribute(ADDED_ATTR);
+  const isProtected=!!selected.closest?.('.site-header .brand') || !!selected.closest?.('.footer-brand .brand-inline');
+  if(isProtected){ alert('Logo／品牌識別屬於核心元件，為避免導覽損壞，這裡不允許刪除。'); return; }
+  if(!isImage && !isAdded){ alert('目前安全刪除支援「圖片」與你在編輯器新增的物件。'); return; }
+  if(!confirm(isImage?'確定刪除這張圖片？\n\n可以用 Undo 復原。':'確定刪除這個新增物件？\n\n可以用 Undo 復原。')) return;
   pushUndo();
   const id=selected.getAttribute(FLOAT_ATTR);
   if(id) iframe.contentDocument.querySelector(`[${PLACEHOLDER_ATTR}="${CSS.escape(id)}"]`)?.remove();
-  const next=selected.parentElement; selected.remove(); selected=null;
+  selected.remove(); selected=null;
   $('#selectedLabel').textContent='尚未選取'; markDirty();
+  setStatus('物件已刪除；需要復原可按 Undo。');
 }
 
 /* ---------- link ---------- */
@@ -684,9 +724,19 @@ function stripEditorArtifacts(doc){
   doc.getElementById(EDITOR_STYLE_ID)?.remove();
   doc.getElementById(HANDLE_ID)?.remove();
   doc.querySelector('base[data-chinon-v10-base]')?.remove();
-  doc.querySelectorAll(`[${SELECT_ATTR}]`).forEach(el=>el.removeAttribute(SELECT_ATTR));
-  doc.querySelectorAll('[contenteditable]').forEach(el=>el.removeAttribute('contenteditable'));
-  doc.querySelectorAll('[data-chinon-v10-editing]').forEach(el=>el.removeAttribute('data-chinon-v10-editing'));
+  doc.querySelectorAll(`[${PLACEHOLDER_ATTR}]`).forEach(el=>el.remove());
+  doc.querySelectorAll('*').forEach(el=>{
+    el.removeAttribute(SELECT_ATTR);
+    el.removeAttribute('data-chinon-v10-editing');
+    el.removeAttribute(ADDED_ATTR);
+    el.removeAttribute(FLOAT_ATTR);
+    el.removeAttribute(FLOAT_STYLE_BACKUP_ATTR);
+    el.removeAttribute(FLOAT_PARENT_POS_BACKUP_ATTR);
+    el.removeAttribute('data-chinon-v10-drag-x');
+    el.removeAttribute('data-chinon-v10-drag-y');
+    el.removeAttribute('contenteditable');
+    if(el.getAttribute('draggable')==='false' && el.tagName==='IMG') el.removeAttribute('draggable');
+  });
 }
 function serializeDoc(doc){ return '<!doctype html>\n'+doc.documentElement.outerHTML; }
 function rewritePreviewPaths(doc){
@@ -718,6 +768,26 @@ async function currentDraftSignature(){
   }
   return hashText(parts.join('\n---PAGE---\n'));
 }
+function hasConflictMarkers(text){
+  const s=String(text||'');
+  return /<<<<<<<\s|=======|>>>>>>>\s/.test(s) || /&lt;&lt;&lt;&lt;&lt;&lt;&lt;\s*HEAD/i.test(s) || /&gt;&gt;&gt;&gt;&gt;&gt;&gt;/.test(s);
+}
+function inspectSiteHtml(text){
+  if(hasConflictMarkers(text)) return {ok:false,detail:'偵測到 Git 合併衝突標記'};
+  const doc=new DOMParser().parseFromString(text,'text/html');
+  const required=[
+    ['Logo','.site-header .brand img'],['品牌中文','.site-header .brand strong'],['品牌英文','.site-header .brand small'],
+    ['導覽列','.site-header .nav-links'],['手機選單','.site-header .menu-toggle'],['主要內容','main'],['main.js','script[src*="main.js"]']
+  ];
+  const missing=required.filter(([,sel])=>!doc.querySelector(sel)).map(([name])=>name);
+  if(missing.length) return {ok:false,detail:`缺少：${missing.join('、')}`};
+  return {ok:true,detail:'結構正常、無衝突標記'};
+}
+function assertSafeHtml(text,label='頁面'){
+  const r=inspectSiteHtml(text);
+  if(!r.ok) throw new Error(`${label} 不安全：${r.detail}`);
+}
+
 async function runCoreChecks(){
   const results=[];
   const add=(name,ok,detail='')=>results.push({name,ok,detail});
@@ -731,8 +801,13 @@ async function runCoreChecks(){
     add('正式 styles.css',res.ok,res.ok?'讀取正常':`HTTP ${res.status}`);
   }catch(err){ add('正式 styles.css',false,err.message); }
   for(const page of SITE_PAGES){
-    try{ const res=await fetch(`../${page.file}?selfcheck=${Date.now()}`,{cache:'no-store'}); add(`${page.name}頁面`,res.ok,res.ok?'讀取正常':`HTTP ${res.status}`); }
-    catch(err){ add(`${page.name}頁面`,false,err.message); }
+    try{
+      const res=await fetch(`../${page.file}?selfcheck=${Date.now()}`,{cache:'no-store'});
+      if(!res.ok){ add(`${page.name}頁面`,false,`HTTP ${res.status}`); continue; }
+      const text=await res.text();
+      const check=inspectSiteHtml(text);
+      add(`${page.name}頁面`,check.ok,check.detail);
+    }catch(err){ add(`${page.name}頁面`,false,err.message); }
   }
   try{
     const doc=iframe.contentDocument;
@@ -780,6 +855,7 @@ async function buildPreviewSnapshot(){
       source=draft.html; dirty=true; dirtyFiles.push(page.file);
     }
 
+    assertSafeHtml(source,page.name);
     const prodDoc=new DOMParser().parseFromString(source,'text/html');
     stripEditorArtifacts(prodDoc);
     await replaceDataUrls(prodDoc,assetFiles,assetState);
@@ -920,6 +996,11 @@ async function createBlob(owner,repo,token,file){
   });
 }
 async function commitFiles({owner,repo,branch,token,files,message,expectedHead=null}){
+  for(const [path,file] of files){
+    if(file.encoding!=='base64' && /\.html$/i.test(path)) assertSafeHtml(file.content,path);
+    if(file.encoding!=='base64' && hasConflictMarkers(file.content)) throw new Error(`${path} 含有 Git 衝突標記，已禁止發布。`);
+  }
+
   const ref=await githubApi(`https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${branch}`,token);
   const parentSha=ref.object.sha;
   if(expectedHead && parentSha!==expectedHead) throw new Error('GitHub 在你確認測試版之後又有新的 Commit。為避免覆蓋別的更新，正式套用已停止，請重新發布測試版。');
@@ -1068,6 +1149,7 @@ $('#btnRedo').addEventListener('click',redo);
 $('#btnAddImage').addEventListener('click',()=>$('#addImageInput').click());
 $('#addImageInput').addEventListener('change',async e=>{ await addImage(e.target.files?.[0]); e.target.value=''; });
 $('#btnReplaceImage').addEventListener('click',()=>$('#replaceImageInput').click());
+$('#btnFindWixImage').addEventListener('click',findNextWixImage);
 $('#replaceImageInput').addEventListener('change',async e=>{ await replaceImage(e.target.files?.[0]); e.target.value=''; });
 $('#btnBackground').addEventListener('click',()=>$('#backgroundInput').click());
 $('#backgroundInput').addEventListener('change',async e=>{ await setBackground(e.target.files?.[0]); e.target.value=''; });

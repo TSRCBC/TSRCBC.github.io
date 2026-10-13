@@ -66,7 +66,7 @@ h1,h2,h3,h4,p{font-family:inherit}
   border-radius:999px;
   border-bottom:0!important;
 }
-.menu-toggle{display:none;border:0;background:none;font-size:24px}
+.menu-toggle{display:none;border:0;background:none;font-size:24px;cursor:pointer;position:relative;z-index:103}
 
 /* Global type/buttons */
 .eyebrow{
@@ -390,7 +390,6 @@ h1,h2,h3,h4,p{font-family:inherit}
   .nav-wrap{min-height:66px}
   .brand img{height:48px}
   .nav-links{top:66px}
-  .brand span{display:none}
   .home-hero,.home-hero-inner{min-height:520px}
   .home-hero-wash{background:linear-gradient(90deg,rgba(252,247,237,.96),rgba(252,247,237,.78))}
   .hero-copy{width:100%}
@@ -419,3 +418,31 @@ h1,h2,h3,h4,p{font-family:inherit}
   .footer-main{grid-template-columns:1fr}
 }
 
+
+
+/* V10.6 mobile navigation hardening */
+@media(max-width:1040px){
+  .site-header{overflow:visible}
+  .nav-wrap{position:relative}
+  .menu-toggle{
+    display:block;
+    flex:0 0 auto;
+    padding:8px 4px;
+    color:var(--ink);
+  }
+  .nav-links{
+    z-index:102;
+    box-shadow:0 16px 28px rgba(33,29,23,.10);
+    max-height:calc(100vh - 78px);
+    overflow-y:auto;
+  }
+  .nav-links.open{display:flex!important}
+}
+@media(max-width:680px){
+  .brand{gap:7px}
+  .brand img{height:44px}
+  .brand span{display:grid!important}
+  .brand strong{font-size:16px}
+  .brand small{font-size:9px;margin-top:3px}
+  .nav-links{max-height:calc(100vh - 66px)}
+}
