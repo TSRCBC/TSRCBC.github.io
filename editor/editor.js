@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const BUILD = 'V10.7 SAFE DRAFT';
+const BUILD = 'V10.7.1 MOVE FIX';
 const FONT_URL = 'https://fonts.googleapis.com/css2?family=Iansui&family=Klee+One:wght@400;600&family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&family=Noto+Serif+TC:wght@400;500;600;700;800;900&family=Yuji+Syuku&family=Zen+Kurenaido&display=swap';
 
 /* ---------- login ---------- */
@@ -441,8 +441,8 @@ function injectEditorUi(doc){
       border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,.35);
       z-index:2147483647;cursor:nwse-resize;display:none
     }
-    [${FLOAT_ATTR}="1"]{cursor:move!important;touch-action:none!important;user-select:none!important;-webkit-user-select:none!important}
-    img[${FLOAT_ATTR}="1"]{-webkit-user-drag:none!important}
+    [${FLOAT_ATTR}]{cursor:move!important;touch-action:none!important;user-select:none!important;-webkit-user-select:none!important}
+    img[${FLOAT_ATTR}]{-webkit-user-drag:none!important}
   `;
   doc.head.appendChild(style);
 
@@ -484,9 +484,14 @@ function injectEditorUi(doc){
   },true);
 
   doc.addEventListener('pointerdown',e=>{
-    const el=e.target.closest?.(`[${FLOAT_ATTR}="1"]`);
+    const el=e.target.closest?.(`[${FLOAT_ATTR}]`);
     if(!el || e.target.id===HANDLE_ID) return;
     startFloatDrag(e,el);
+  },true);
+
+  doc.addEventListener('dragstart',e=>{
+    const el=e.target.closest?.(`[${FLOAT_ATTR}]`);
+    if(el) e.preventDefault();
   },true);
 
   doc.defaultView.addEventListener('scroll',updateHandle,{passive:true});
@@ -701,6 +706,7 @@ function floatSelected(){
   const id='float-'+Date.now().toString(36);
   selected.setAttribute(FLOAT_STYLE_BACKUP_ATTR,encodeURIComponent(selected.getAttribute('style')||''));
   selected.setAttribute(FLOAT_ATTR,id);
+  $('#selectedLabel').textContent=`${selected.tagName.toLowerCase()}｜自由擺放`;
   selected.setAttribute('data-chinon-v10-drag-x','0');
   selected.setAttribute('data-chinon-v10-drag-y','0');
   selected.style.translate='0px 0px';
@@ -708,7 +714,7 @@ function floatSelected(){
   selected.style.cursor='move';
   if(selected.tagName==='IMG') selected.draggable=false;
   markDirty(); updateHandle();
-  setStatus('自由擺放已啟用：現在直接按住物件拖到你要的位置。');
+  setStatus('自由擺放已啟用：直接按住這個物件本身拖曳即可。');
 }
 function unfloatSelected(){
   if(!selected || !selected.hasAttribute(FLOAT_ATTR)){ alert('目前選取物件不是自由擺放物件。'); return; }
