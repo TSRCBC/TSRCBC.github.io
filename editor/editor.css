@@ -168,3 +168,9 @@ dialog::backdrop{background:rgba(0,0,0,.68)}
   color:#98a7b5;
   text-align:center;
 }
+
+
+/* V10.8 FLOW IMAGE */
+#btnFlowImageAbove,#btnFlowImageBelow{
+  white-space:nowrap;
+}

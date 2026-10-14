@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const BUILD = 'V10.7.1 MOVE FIX';
+const BUILD = 'V10.8 FLOW IMAGE';
 const FONT_URL = 'https://fonts.googleapis.com/css2?family=Iansui&family=Klee+One:wght@400;600&family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&family=Noto+Serif+TC:wght@400;500;600;700;800;900&family=Yuji+Syuku&family=Zen+Kurenaido&display=swap';
 
 /* ---------- login ---------- */
@@ -98,6 +98,7 @@ let selected = null;
 let currentDirty = false;
 let dragState = null;
 let resizeState = null;
+let pendingFlowImagePosition = 'above';
 let pageDrafts = new Map();
 let draftHistory = new Map();
 let undoStack = [];
@@ -108,6 +109,7 @@ let latestPreviewId = '';
 
 const EDITOR_STYLE_ID = 'chinon-v10-editor-style';
 const HANDLE_ID = 'chinon-v10-resize-handle';
+const FLOW_IMAGE_BLOCK_CLASS = 'chinon-flow-image-block';
 const SELECT_ATTR = 'data-chinon-v10-selected';
 const ADDED_ATTR = 'data-chinon-v10-added';
 const FLOAT_ATTR = 'data-chinon-v10-float';
@@ -456,6 +458,8 @@ function injectEditorUi(doc){
 
   doc.addEventListener('click',e=>{
     if(e.target.id===HANDLE_ID) return;
+    // 讓網站本身的手機選單按鈕正常執行，不被編輯器 capture 階段攔截。
+    if(e.target.closest?.('.menu-toggle')) return;
     if(e.target.closest('a')) e.preventDefault();
     e.stopPropagation();
     selectElement(e.target);
@@ -502,7 +506,8 @@ function selectElement(el){
   if(selected) selected.removeAttribute(SELECT_ATTR);
   selected=el;
   selected.setAttribute(SELECT_ATTR,'1');
-  $('#selectedLabel').textContent=`${el.tagName.toLowerCase()}${el.id?'#'+el.id:''}${el.classList.length?'.'+[...el.classList].slice(0,2).join('.'):''}`;
+  const flowLabel=el.tagName==='IMG' && el.closest?.(`.${FLOW_IMAGE_BLOCK_CLASS}`) ? '｜圖片區塊' : '';
+  $('#selectedLabel').textContent=`${el.tagName.toLowerCase()}${el.id?'#'+el.id:''}${el.classList.length?'.'+[...el.classList].slice(0,2).join('.'):''}${flowLabel}`;
   syncInspector();
   updateHandle();
 }
@@ -652,6 +657,90 @@ function findInsertContainer(){
   if(!selected) return iframe.contentDocument.body;
   return selected.closest('section,header,footer,main,article,.container,div') || selected.parentElement || iframe.contentDocument.body;
 }
+
+function resolveFlowAnchor(){
+  if(!selected){
+    throw new Error('請先點選「品牌歷程」之類的標題或內容區塊，再選擇插入上方／下方。');
+  }
+  const doc=iframe.contentDocument;
+  const main=doc?.querySelector('main');
+  if(main && main.contains(selected)){
+    let node=selected;
+    while(node.parentElement && node.parentElement!==main){
+      node=node.parentElement;
+    }
+    if(node.parentElement===main) return node;
+  }
+  return selected.closest?.('section,article,.section,.split-story') || selected;
+}
+function createFlowImageBlock(doc,src){
+  const block=doc.createElement('div');
+  block.className=FLOW_IMAGE_BLOCK_CLASS;
+  block.setAttribute(ADDED_ATTR,'1');
+  block.style.cssText=[
+    'width:100%',
+    'box-sizing:border-box',
+    'padding:40px 24px',
+    'display:flex',
+    'justify-content:center',
+    'align-items:center',
+    'clear:both',
+    'position:relative'
+  ].join(';')+';';
+
+  const img=doc.createElement('img');
+  img.src=src;
+  img.alt='';
+  img.setAttribute(ADDED_ATTR,'1');
+  img.style.cssText=[
+    'display:block',
+    'width:52%',
+    'max-width:100%',
+    'height:auto',
+    'margin:0 auto',
+    'object-fit:contain'
+  ].join(';')+';';
+  block.appendChild(img);
+  return {block,img};
+}
+async function insertFlowImage(file,position='above'){
+  if(!file) return;
+  let anchor;
+  try{
+    anchor=resolveFlowAnchor();
+  }catch(err){
+    alert(err.message);
+    return;
+  }
+  if(!anchor?.parentElement){
+    alert('找不到可插入的位置，請改點選標題或內容區塊後再試一次。');
+    return;
+  }
+
+  pushUndo();
+  const src=await prepareImageDataUrl(file);
+  const doc=iframe.contentDocument;
+  const {block,img}=createFlowImageBlock(doc,src);
+
+  if(position==='below') anchor.insertAdjacentElement('afterend',block);
+  else anchor.insertAdjacentElement('beforebegin',block);
+
+  selectElement(img);
+  markDirty();
+  block.scrollIntoView({block:'center',behavior:'smooth'});
+  setStatus(position==='below'
+    ? '圖片區塊已插入下方。這是正常排版：圖片放大時，下面內容會自動往下移。'
+    : '圖片區塊已插入上方。這是正常排版：圖片放大時，下面內容會自動往下移。');
+}
+function requestFlowImage(position){
+  if(!selected){
+    alert('先點選要當作定位基準的標題或區塊，例如「品牌歷程」，再按「＋圖片區塊 ↑／↓」。');
+    return;
+  }
+  pendingFlowImagePosition=position;
+  $('#flowImageInput').click();
+}
+
 async function addImage(file){
   if(!file) return;
   pushUndo();
@@ -685,9 +774,17 @@ function alignImage(mode){
   if(!selected || selected.tagName!=='IMG'){ alert('請先點選圖片。'); return; }
   pushUndo();
   selected.style.display='block';
-  if(mode==='left'){ selected.style.marginLeft='0'; selected.style.marginRight='auto'; }
-  if(mode==='center'){ selected.style.marginLeft='auto'; selected.style.marginRight='auto'; }
-  if(mode==='right'){ selected.style.marginLeft='auto'; selected.style.marginRight='0'; }
+  const flowBlock=selected.closest?.(`.${FLOW_IMAGE_BLOCK_CLASS}`);
+  if(flowBlock){
+    flowBlock.style.display='flex';
+    flowBlock.style.justifyContent=mode==='left'?'flex-start':mode==='right'?'flex-end':'center';
+    selected.style.marginLeft='0';
+    selected.style.marginRight='0';
+  }else{
+    if(mode==='left'){ selected.style.marginLeft='0'; selected.style.marginRight='auto'; }
+    if(mode==='center'){ selected.style.marginLeft='auto'; selected.style.marginRight='auto'; }
+    if(mode==='right'){ selected.style.marginLeft='auto'; selected.style.marginRight='0'; }
+  }
   selected.style.objectPosition='center center';
   markDirty();
 }
@@ -780,9 +877,12 @@ function deleteAdded(){
   pushUndo();
   const id=selected.getAttribute(FLOAT_ATTR);
   if(id) iframe.contentDocument.querySelector(`[${PLACEHOLDER_ATTR}="${CSS.escape(id)}"]`)?.remove();
-  selected.remove(); selected=null;
+  const flowBlock=selected.closest?.(`.${FLOW_IMAGE_BLOCK_CLASS}`);
+  if(flowBlock && isImage) flowBlock.remove();
+  else selected.remove();
+  selected=null;
   $('#selectedLabel').textContent='尚未選取'; markDirty();
-  setStatus('物件已刪除；需要復原可按 Undo。');
+  setStatus(flowBlock && isImage ? '圖片區塊已刪除；需要復原可按 Undo。' : '物件已刪除；需要復原可按 Undo。');
 }
 
 /* ---------- link ---------- */
@@ -1386,6 +1486,13 @@ $('#btnRedo').addEventListener('click',redo);
 
 $('#btnAddImage').addEventListener('click',()=>$('#addImageInput').click());
 $('#addImageInput').addEventListener('change',async e=>{ await addImage(e.target.files?.[0]); e.target.value=''; });
+$('#btnFlowImageAbove').addEventListener('click',()=>requestFlowImage('above'));
+$('#btnFlowImageBelow').addEventListener('click',()=>requestFlowImage('below'));
+$('#flowImageInput').addEventListener('change',async e=>{
+  try{ await insertFlowImage(e.target.files?.[0],pendingFlowImagePosition); }
+  catch(err){ console.error(err); alert(`插入圖片區塊失敗：${err.message}`); }
+  e.target.value='';
+});
 $('#btnReplaceImage').addEventListener('click',()=>$('#replaceImageInput').click());
 $('#btnFindWixImage').addEventListener('click',findNextWixImage);
 $('#replaceImageInput').addEventListener('change',async e=>{ await replaceImage(e.target.files?.[0]); e.target.value=''; });
