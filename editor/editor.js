@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const BUILD = 'V10.6 CLEAN';
+const BUILD = 'V10.7 SAFE DRAFT';
 const FONT_URL = 'https://fonts.googleapis.com/css2?family=Iansui&family=Klee+One:wght@400;600&family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&family=Noto+Serif+TC:wght@400;500;600;700;800;900&family=Yuji+Syuku&family=Zen+Kurenaido&display=swap';
 
 /* ---------- login ---------- */
@@ -82,6 +82,8 @@ const DRAFT_DB = 'chinon-v10-editor';
 const DRAFT_STORE = 'state';
 const DRAFT_KEY = 'draft-v10';
 const PREVIEW_SNAPSHOT_KEY = 'preview-snapshot-v10';
+const DRAFT_HISTORY_KEY = 'draft-history-v10';
+const DRAFT_HISTORY_LIMIT = 20;
 const PUBLISH_SETTINGS_KEY = 'chinon-v10-publish-settings';
 const TOKEN_SESSION_KEY = 'chinon-v10-token';
 const TOKEN_LOCAL_KEY = 'chinon-v10-token-local';
@@ -90,12 +92,14 @@ let currentFile = null;
 let hasLoadedPage = false;
 let draftSaveTimer = null;
 let currentBaseHash = '';
+let currentBaseRepoSha = '';
 let currentLiveSource = '';
 let selected = null;
 let currentDirty = false;
 let dragState = null;
 let resizeState = null;
 let pageDrafts = new Map();
+let draftHistory = new Map();
 let undoStack = [];
 let redoStack = [];
 let latestPreviewUrl = '';
@@ -147,7 +151,7 @@ async function dbPut(key,value){
 }
 async function persistDraftMap({silent=false}={}){
   const savedAt=Date.now();
-  const payload={version:1050,pages:[...pageDrafts.entries()],savedAt};
+  const payload={version:1070,pages:[...pageDrafts.entries()],savedAt};
   await dbPut(DRAFT_KEY,payload);
   if(!silent){
     const t=new Date(savedAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -171,6 +175,39 @@ function scheduleDraftSave(){
 async function restoreDraftState(){
   const saved=await dbGet(DRAFT_KEY);
   if(saved?.pages) pageDrafts=new Map(saved.pages);
+  const historySaved=await dbGet(DRAFT_HISTORY_KEY);
+  if(historySaved?.pages) draftHistory=new Map(historySaved.pages);
+}
+async function persistDraftHistory(){
+  await dbPut(DRAFT_HISTORY_KEY,{version:1070,pages:[...draftHistory.entries()],savedAt:Date.now()});
+}
+function draftHistoryFor(file){
+  return Array.isArray(draftHistory.get(file)) ? draftHistory.get(file) : [];
+}
+async function addDraftHistory(file,snapshot,{reason='手動儲存',silent=false}={}){
+  if(!file || !snapshot?.html) return null;
+  const list=draftHistoryFor(file);
+  const last=list[0];
+  if(last?.html===snapshot.html && last?.reason===reason){
+    return last;
+  }
+  const entry={
+    id:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+    savedAt:Date.now(),
+    reason,
+    html:snapshot.html,
+    baseHash:snapshot.baseHash||'',
+    baseRepoSha:snapshot.baseRepoSha||'',
+    dirty:snapshot.dirty!==false
+  };
+  list.unshift(entry);
+  draftHistory.set(file,list.slice(0,DRAFT_HISTORY_LIMIT));
+  await persistDraftHistory();
+  if(!silent){
+    const t=new Date(entry.savedAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    setStatus(`已建立可恢復草稿版本 ${t}（${reason}）。`);
+  }
+  return entry;
 }
 
 /* ---------- helpers ---------- */
@@ -180,6 +217,53 @@ async function fetchLive(file){
   if(!res.ok) throw new Error(`${file} 讀取失敗 (${res.status})`);
   return await res.text();
 }
+
+function readStoredRepoSettings(){
+  let s={};
+  try{s=JSON.parse(localStorage.getItem(PUBLISH_SETTINGS_KEY)||'{}')}catch{}
+  return {
+    owner:s.owner||'TSRCBC',
+    repo:s.repo||'TSRCBC.github.io',
+    branch:s.branch||'main',
+    token:localStorage.getItem(TOKEN_LOCAL_KEY)||sessionStorage.getItem(TOKEN_SESSION_KEY)||''
+  };
+}
+function decodeGithubBase64(value){
+  const binary=atob(String(value||'').replace(/\n/g,''));
+  const bytes=Uint8Array.from(binary,c=>c.charCodeAt(0));
+  return new TextDecoder('utf-8').decode(bytes);
+}
+async function fetchRepoFileState(file,settings=null){
+  const s=settings||readStoredRepoSettings();
+  const headers={Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'};
+  if(s.token) headers.Authorization=`Bearer ${s.token}`;
+  const url=`https://api.github.com/repos/${encodeURIComponent(s.owner)}/${encodeURIComponent(s.repo)}/contents/${encodeURIComponent(file)}?ref=${encodeURIComponent(s.branch||'main')}&_=${Date.now()}`;
+  const res=await fetch(url,{cache:'no-store',headers});
+  if(!res.ok){
+    let detail=''; try{detail=(await res.json())?.message||''}catch{}
+    throw new Error(`GitHub ${file} 讀取失敗 (${res.status}${detail?`：${detail}`:''})`);
+  }
+  const data=await res.json();
+  if(data.type!=='file' || !data.sha) throw new Error(`GitHub ${file} 不是可讀取的檔案`);
+  let text='';
+  if(data.content && data.encoding==='base64') text=decodeGithubBase64(data.content);
+  else if(data.download_url){
+    const raw=await fetch(`${data.download_url}${data.download_url.includes('?')?'&':'?'}_=${Date.now()}`,{cache:'no-store'});
+    if(!raw.ok) throw new Error(`GitHub ${file} 原始內容讀取失敗 (${raw.status})`);
+    text=await raw.text();
+  }else throw new Error(`GitHub ${file} 沒有可讀內容`);
+  return {text,sha:data.sha,source:'github'};
+}
+async function fetchEditorSource(file,settings=null){
+  try{
+    return await fetchRepoFileState(file,settings);
+  }catch(err){
+    console.warn('GitHub source fallback to Pages',err);
+    const text=await fetchLive(file);
+    return {text,sha:'',source:'pages',warning:err.message};
+  }
+}
+
 function isTextElement(el){
   if(!el) return false;
   return ['H1','H2','H3','H4','H5','H6','P','SPAN','A','BUTTON','LI','STRONG','EM','SMALL','LABEL','FIGCAPTION','TD','TH'].includes(el.tagName);
@@ -209,7 +293,12 @@ function captureCurrentPage(){
   const doc=iframe.contentDocument;
   if(!doc?.documentElement || !currentFile) return;
   const html=cleanDocumentHtml(doc);
-  pageDrafts.set(currentFile,{html,baseHash:currentBaseHash,dirty:currentDirty});
+  pageDrafts.set(currentFile,{
+    html,
+    baseHash:currentBaseHash,
+    baseRepoSha:currentBaseRepoSha||'',
+    dirty:currentDirty
+  });
 }
 function markDirty(){
   currentDirty=true;
@@ -285,30 +374,58 @@ async function loadPage(file,{forceLive=false,skipCapture=false}={}){
   undoStack=[]; redoStack=[];
   setStatus(`正在載入 ${SITE_PAGES.find(x=>x.file===file)?.name||file}…`);
 
-  const live=await fetchLive(file);
+  const source=await fetchEditorSource(file);
+  const live=source.text;
   currentLiveSource=live;
   currentBaseHash=await hashText(live);
+  currentBaseRepoSha=source.sha||'';
 
   const draft=pageDrafts.get(file);
-  if(!forceLive && draft?.html && draft.baseHash===currentBaseHash && /<body[\s>]/i.test(draft.html) && draft.html.length>300){
-    currentDirty=!!draft.dirty;
-    await navigateFrame({srcdoc:toEditorSrcdoc(draft.html)});
-  }else{
-    if(draft && draft.baseHash!==currentBaseHash){
-      pageDrafts.delete(file);
+  if(!forceLive && draft?.html && /<body[\s>]/i.test(draft.html) && draft.html.length>300){
+    // V10.6 舊草稿沒有 baseRepoSha：絕不刪除，第一次由 V10.7 安全接管。
+    if(!draft.baseRepoSha && currentBaseRepoSha){
+      draft.baseRepoSha=currentBaseRepoSha;
+      draft.baseHash=draft.baseHash||currentBaseHash;
+      pageDrafts.set(file,draft);
       await persistDraftMap({silent:true});
     }
+    currentDirty=!!draft.dirty;
+    currentBaseHash=draft.baseHash||currentBaseHash;
+    currentBaseRepoSha=draft.baseRepoSha||currentBaseRepoSha;
+    await navigateFrame({srcdoc:toEditorSrcdoc(draft.html)});
+    if(source.warning){
+      setStatus(`${SITE_PAGES.find(x=>x.file===file)?.name||file} 已載入本機草稿；GitHub API 暫時不可用，稍後發布時會再次驗證。`);
+    }
+  }else{
     currentDirty=false;
-    await navigateFrame({src:`../${file}?editorV10=${Date.now()}`});
+    // 直接用 GitHub Repository 裡的 HTML 當編輯基準，避免 GitHub Pages 部署延遲造成假衝突。
+    await navigateFrame({srcdoc:toEditorSrcdoc(live)});
+    pageDrafts.set(file,{
+      html:live,
+      baseHash:currentBaseHash,
+      baseRepoSha:currentBaseRepoSha||'',
+      dirty:false
+    });
+    await persistDraftMap({silent:true});
   }
 }
 async function reloadCurrentFromLive(){
-  if(!confirm('這會捨棄目前這一頁尚未發布的草稿，重新抓正式網站。確定？')) return;
-  pageDrafts.delete(currentFile);
-  await persistDraftMap({silent:true});
+  if(!currentFile) return;
+  if(!confirm('會重新載入 GitHub 目前正式檔案。\n\n你現在的畫面會先自動備份到「草稿版本」，不會被永久刪除。確定繼續？')) return;
+
+  if(hasLoadedPage){
+    captureCurrentPage();
+    const before=pageDrafts.get(currentFile);
+    if(before?.html) await addDraftHistory(currentFile,before,{reason:'重新載入前自動備份',silent:true});
+    await persistDraftMap({silent:true});
+  }
+
   currentDirty=false;
   await loadPage(currentFile,{forceLive:true,skipCapture:true});
-  setStatus('已重新載入目前正式網站，這一頁的舊草稿已清除。');
+  const clean=pageDrafts.get(currentFile);
+  if(clean) clean.dirty=false;
+  await persistDraftMap({silent:true});
+  setStatus('已重新載入 GitHub 目前版本。剛才的內容已保存在「草稿版本」，需要時可恢復。');
 }
 
 /* ---------- iframe editor ---------- */
@@ -817,7 +934,22 @@ async function runCoreChecks(){
   add('版本標示',buildLabel?.textContent===BUILD,buildLabel?.textContent||'找不到版本標示');
   return {ok:results.every(x=>x.ok),results};
 }
-async function preflightBeforePreview(){
+async function ensureDraftRepoBaseline(page,draft,settings){
+  const repo=await fetchRepoFileState(page.file,settings);
+  if(!draft.baseRepoSha){
+    // V10.6 舊草稿第一次升級：保留草稿，綁定目前 Repository 檔案版本。
+    draft.baseRepoSha=repo.sha;
+    if(!draft.baseHash) draft.baseHash=await hashText(repo.text);
+    pageDrafts.set(page.file,draft);
+    await persistDraftMap({silent:true});
+    return repo;
+  }
+  if(repo.sha!==draft.baseRepoSha){
+    throw new Error(`${page.name} 的 GitHub 正式檔案真的已經變更（不是 Pages 部署延遲）。草稿仍完整保留。請用「草稿版本」備份後，再決定是否重新載入官網。`);
+  }
+  return repo;
+}
+async function preflightBeforePreview(settings){
   await saveDraftState({silent:true});
   const checks=await runCoreChecks();
   if(!checks.ok){
@@ -827,14 +959,13 @@ async function preflightBeforePreview(){
   for(const page of SITE_PAGES){
     const d=pageDrafts.get(page.file);
     if(!d?.dirty) continue;
-    const fresh=await fetchLive(page.file);
-    const freshHash=await hashText(fresh);
-    if(freshHash!==d.baseHash) throw new Error(`${page.name}正式頁面已在背景更新。請先重新載入該頁再發布。`);
+    await ensureDraftRepoBaseline(page,d,settings);
   }
   return checks;
 }
-async function buildPreviewSnapshot(){
+async function buildPreviewSnapshot(settings){
   captureCurrentPage();
+  await persistDraftMap({silent:true});
   const previewFiles=new Map();
   const productionFiles=new Map();
   const assetFiles=new Map();
@@ -842,15 +973,17 @@ async function buildPreviewSnapshot(){
   const dirtyFiles=[];
 
   for(const page of SITE_PAGES){
-    const fresh=await fetchLive(page.file);
-    const freshHash=await hashText(fresh);
+    const repo=await fetchRepoFileState(page.file,settings);
     const draft=pageDrafts.get(page.file);
-    let source=fresh;
+    let source=repo.text;
     let dirty=false;
 
     if(draft?.dirty){
-      if(draft.baseHash!==freshHash){
-        throw new Error(`${page.name} 的正式網站在你編輯期間已更新。為避免覆蓋新版，請先重新載入官網。`);
+      if(!draft.baseRepoSha){
+        draft.baseRepoSha=repo.sha;
+        pageDrafts.set(page.file,draft);
+      }else if(draft.baseRepoSha!==repo.sha){
+        throw new Error(`${page.name} 的 GitHub 正式檔案在你編輯期間真的有變更。草稿沒有被刪除，發布已停止。`);
       }
       source=draft.html; dirty=true; dirtyFiles.push(page.file);
     }
@@ -977,7 +1110,7 @@ async function githubApi(url,token,options={}){
     headers:{
       Accept:'application/vnd.github+json',
       'X-GitHub-Api-Version':'2022-11-28',
-      Authorization:`Bearer ${token}`,
+      ...(token?{Authorization:`Bearer ${token}`}:{ }),
       ...(options.headers||{})
     }
   });
@@ -1051,9 +1184,9 @@ async function doPublish(){
   try{
     if(publishMode==='preview'){
       publishProgress('正在執行發布前檢查…');
-      await preflightBeforePreview();
+      await preflightBeforePreview(settings);
       publishProgress('檢查通過。正在建立與目前畫面相同的測試快照…');
-      const snap=await buildPreviewSnapshot();
+      const snap=await buildPreviewSnapshot(settings);
       const files=snap.previewFiles;
       const sha=await commitFiles({
         ...settings,files,
@@ -1092,13 +1225,95 @@ async function doPublish(){
         message:`Promote CHINON V10 preview to live ${new Date().toLocaleString('zh-TW')}`,
         expectedHead:snap.previewCommitSha
       });
+      // 正式發布成功後，將同一份內容改成新的乾淨基準，避免下一次被自己的發布誤判成外部更新。
+      for(const file of snap.dirtyFiles||[]){
+        const published=(snap.productionFiles||[]).find(([path])=>path===file)?.[1]?.content;
+        if(!published) continue;
+        try{
+          const repo=await fetchRepoFileState(file,settings);
+          pageDrafts.set(file,{
+            html:published,
+            baseHash:await hashText(published),
+            baseRepoSha:repo.sha,
+            dirty:false
+          });
+        }catch(err){
+          console.warn('正式發布後基準更新失敗',file,err);
+        }
+      }
+      await persistDraftMap({silent:true});
       publishProgress(`正式網站已套用「剛剛測試版」的同一份內容快照。\nCommit：${sha.slice(0,7)}\n\nGitHub Pages 需要一點時間重新部署。`,'ok');
-      setStatus('正式網站已套用測試版快照。');
+      setStatus('正式網站已套用測試版快照；草稿基準已同步到 GitHub。');
       $('#btnPromote').disabled=true;
     }
   }catch(err){
     console.error(err); publishProgress(`失敗：${err.message}`,'error'); setStatus(`發布失敗：${err.message}`);
   }finally{ btn.disabled=false; }
+}
+
+
+/* ---------- draft history ---------- */
+function pageDisplayName(file){
+  return SITE_PAGES.find(x=>x.file===file)?.name||file||'目前頁面';
+}
+function renderDraftHistory(){
+  const listEl=$('#draftHistoryList');
+  const title=$('#draftHistoryTitle');
+  if(!listEl) return;
+  title.textContent=`草稿版本｜${pageDisplayName(currentFile)}`;
+  const list=draftHistoryFor(currentFile);
+  if(!list.length){
+    listEl.innerHTML='<div class="draft-empty">目前還沒有手動版本。按「儲存草稿」後就會出現在這裡。</div>';
+    return;
+  }
+  listEl.innerHTML=list.map((v,i)=>{
+    const when=new Date(v.savedAt).toLocaleString('zh-TW',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    const baseline=v.baseRepoSha?`GitHub ${v.baseRepoSha.slice(0,7)}`:'舊版草稿';
+    return `<div class="draft-version">
+      <div class="draft-version-main">
+        <strong>${when}</strong>
+        <span>${v.reason||'草稿版本'}</span>
+        <small>${baseline}</small>
+      </div>
+      <button type="button" data-restore-draft="${v.id}" data-draft-index="${i}">恢復</button>
+    </div>`;
+  }).join('');
+}
+async function saveManualDraftVersion(reason='手動儲存'){
+  if(hasLoadedPage) captureCurrentPage();
+  await persistDraftMap({silent:true});
+  const snap=pageDrafts.get(currentFile);
+  if(snap?.html) await addDraftHistory(currentFile,snap,{reason});
+  renderDraftHistory();
+}
+async function restoreDraftVersion(id){
+  const list=draftHistoryFor(currentFile);
+  const v=list.find(x=>x.id===id);
+  if(!v) return;
+  if(!confirm(`要恢復 ${new Date(v.savedAt).toLocaleString('zh-TW')} 的草稿版本嗎？\n\n目前畫面會先自動備份，所以可以再換回來。`)) return;
+
+  if(hasLoadedPage){
+    captureCurrentPage();
+    const now=pageDrafts.get(currentFile);
+    if(now?.html) await addDraftHistory(currentFile,now,{reason:'恢復版本前自動備份',silent:true});
+  }
+
+  const repo=await fetchEditorSource(currentFile);
+  currentBaseHash=v.baseHash||await hashText(repo.text);
+  currentBaseRepoSha=v.baseRepoSha||repo.sha||'';
+  currentDirty=true;
+  pageDrafts.set(currentFile,{
+    html:v.html,
+    baseHash:currentBaseHash,
+    baseRepoSha:currentBaseRepoSha,
+    dirty:true
+  });
+  await persistDraftMap({silent:true});
+  await navigateFrame({srcdoc:toEditorSrcdoc(v.html)});
+  $('#btnPromote').disabled=true;
+  latestPreviewCommit='';
+  setStatus(`已恢復 ${pageDisplayName(currentFile)} 的草稿版本；正式網站沒有變更。`);
+  renderDraftHistory();
 }
 
 function renderSelfCheck(result){
@@ -1136,12 +1351,29 @@ $('#btnSelfCheck').addEventListener('click',runSelfCheckUi);
 $('#btnRunSelfCheck').addEventListener('click',runSelfCheckUi);
 $('#btnCloseSelfCheck').addEventListener('click',()=>$('#selfCheckDialog').close());
 $('#btnSave').addEventListener('click',async()=>{
-  try{ await saveDraftState(); }
-  catch(err){
+  try{
+    await saveDraftState({silent:true});
+    await saveManualDraftVersion('手動儲存');
+  }catch(err){
     console.error(err);
     setStatus(`草稿儲存失敗：${err.message}`);
     alert(`草稿儲存失敗：${err.message}`);
   }
+});
+$('#btnDraftHistory').addEventListener('click',()=>{
+  renderDraftHistory();
+  $('#draftHistoryDialog').showModal();
+});
+$('#btnCloseDraftHistory').addEventListener('click',()=>$('#draftHistoryDialog').close());
+$('#btnSaveVersionNow').addEventListener('click',async()=>{
+  try{ await saveManualDraftVersion('手動建立版本'); }
+  catch(err){ alert(`建立草稿版本失敗：${err.message}`); }
+});
+$('#draftHistoryList').addEventListener('click',async e=>{
+  const btn=e.target.closest?.('[data-restore-draft]');
+  if(!btn) return;
+  try{ await restoreDraftVersion(btn.dataset.restoreDraft); }
+  catch(err){ console.error(err); alert(`恢復草稿失敗：${err.message}`); }
 });
 $('#btnUndo').addEventListener('click',undo);
 $('#btnRedo').addEventListener('click',redo);
@@ -1220,7 +1452,7 @@ window.addEventListener('pagehide',()=>{
       $('#btnPromote').disabled=true;
     }
     await loadPage('index.html');
-    setStatus(`${BUILD} 已完成啟動。草稿自動儲存與 Preview 安全機制已啟用。`);
+    setStatus(`${BUILD} 已完成啟動。編輯基準改用 GitHub Repository；草稿版本與可恢復備份已啟用。`);
   }catch(err){
     console.error(err); setStatus(`啟動失敗：${err.message}`);
   }
