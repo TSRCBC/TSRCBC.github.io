@@ -174,3 +174,27 @@ dialog::backdrop{background:rgba(0,0,0,.68)}
 #btnFlowImageAbove,#btnFlowImageBelow{
   white-space:nowrap;
 }
+
+
+/* V10.9 SAFE SYNC */
+.baseline-conflict-actions{
+  margin:12px 0 2px;
+  padding:12px;
+  border:1px solid #8b5b30;
+  border-radius:10px;
+  background:#231b14;
+}
+.baseline-conflict-actions[hidden]{display:none!important}
+.baseline-conflict-note{
+  margin-bottom:9px;
+  color:#e8c8a8;
+  font-size:12px;
+  line-height:1.55;
+}
+#btnSyncBaselineKeepDraft{
+  width:100%;
+  border-color:#c78a4b;
+  background:#6e431f;
+  color:#fff2df;
+  font-weight:700;
+}

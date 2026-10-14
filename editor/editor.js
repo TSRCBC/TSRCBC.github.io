@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const BUILD = 'V10.8 FLOW IMAGE';
+const BUILD = 'V10.9 SAFE SYNC';
 const FONT_URL = 'https://fonts.googleapis.com/css2?family=Iansui&family=Klee+One:wght@400;600&family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&family=Noto+Serif+TC:wght@400;500;600;700;800;900&family=Yuji+Syuku&family=Zen+Kurenaido&display=swap';
 
 /* ---------- login ---------- */
@@ -1040,6 +1040,17 @@ async function runCoreChecks(){
   add('版本標示',buildLabel?.textContent===BUILD,buildLabel?.textContent||'找不到版本標示');
   return {ok:results.every(x=>x.ok),results};
 }
+
+function makeBaselineMismatchError(page,draft,repo){
+  const err=new Error(`${page.name} 的 GitHub 正式檔案真的已經變更（不是 Pages 部署延遲）。草稿仍完整保留。`);
+  err.code='BASELINE_MISMATCH';
+  err.file=page.file;
+  err.pageName=page.name;
+  err.oldSha=draft?.baseRepoSha||'';
+  err.newSha=repo?.sha||'';
+  return err;
+}
+
 async function ensureDraftRepoBaseline(page,draft,settings){
   const repo=await fetchRepoFileState(page.file,settings);
   if(!draft.baseRepoSha){
@@ -1051,7 +1062,7 @@ async function ensureDraftRepoBaseline(page,draft,settings){
     return repo;
   }
   if(repo.sha!==draft.baseRepoSha){
-    throw new Error(`${page.name} 的 GitHub 正式檔案真的已經變更（不是 Pages 部署延遲）。草稿仍完整保留。請用「草稿版本」備份後，再決定是否重新載入官網。`);
+    throw makeBaselineMismatchError(page,draft,repo);
   }
   return repo;
 }
@@ -1089,7 +1100,7 @@ async function buildPreviewSnapshot(settings){
         draft.baseRepoSha=repo.sha;
         pageDrafts.set(page.file,draft);
       }else if(draft.baseRepoSha!==repo.sha){
-        throw new Error(`${page.name} 的 GitHub 正式檔案在你編輯期間真的有變更。草稿沒有被刪除，發布已停止。`);
+        throw makeBaselineMismatchError(page,draft,repo);
       }
       source=draft.html; dirty=true; dirtyFiles.push(page.file);
     }
@@ -1264,7 +1275,76 @@ async function commitFiles({owner,repo,branch,token,files,message,expectedHead=n
   return commit.sha;
 }
 
+let lastBaselineConflict=null;
 let publishMode='preview';
+
+async function syncLatestBaselineKeepDraft(){
+  const conflict=lastBaselineConflict;
+  if(!conflict?.file){
+    publishProgress('目前沒有可同步的版本衝突。','error');
+    return;
+  }
+
+  const settings=savePublishSettings();
+  if(!settings.owner||!settings.repo||!settings.branch||!settings.token){
+    publishProgress('請先完整填寫 GitHub 發布資料，再同步版本。','error');
+    return;
+  }
+
+  // 先把畫面上的最新修改寫回草稿。
+  if(hasLoadedPage && currentFile===conflict.file){
+    captureCurrentPage();
+  }
+  await persistDraftMap({silent:true});
+
+  const draft=pageDrafts.get(conflict.file);
+  if(!draft?.html){
+    throw new Error(`找不到 ${conflict.pageName||conflict.file} 的草稿，沒有進行同步。`);
+  }
+
+  // 同步前建立不可覆蓋的歷史版本。
+  await addDraftHistory(conflict.file,draft,{reason:'同步 GitHub 前自動備份',silent:true});
+
+  const repo=await fetchRepoFileState(conflict.file,settings);
+
+  const oldShort=(draft.baseRepoSha||'未知').slice(0,7);
+  const newShort=(repo.sha||'未知').slice(0,7);
+  const ok=confirm(
+    `要保留目前「${conflict.pageName||conflict.file}」草稿，並把發布基準同步到 GitHub 最新版本嗎？\n\n`+
+    `目前草稿畫面不會被改掉，也不會重新載入官網。\n`+
+    `舊基準：${oldShort}\n最新基準：${newShort}\n\n`+
+    `注意：如果 GitHub 最新版本包含其他人對同一頁的修改，之後正式發布時可能會由你目前的草稿內容覆蓋。`+
+    `只有在你確認目前草稿應該優先時才按「確定」。`
+  );
+  if(!ok){
+    publishProgress('已取消同步。草稿沒有變更。');
+    return;
+  }
+
+  draft.baseRepoSha=repo.sha;
+  draft.baseHash=await hashText(repo.text);
+  draft.dirty=true;
+  pageDrafts.set(conflict.file,draft);
+
+  if(currentFile===conflict.file){
+    currentBaseRepoSha=repo.sha;
+    currentBaseHash=draft.baseHash;
+    currentDirty=true;
+  }
+
+  await persistDraftMap({silent:true});
+  lastBaselineConflict=null;
+  $('#baselineConflictActions').hidden=true;
+
+  publishProgress(
+    `${conflict.pageName||conflict.file} 已同步到 GitHub 最新基準 ${newShort}。\n`+
+    `目前草稿內容完全保留，正式網站尚未變更。\n\n`+
+    `現在可以再按「發布測試版」。`,
+    'ok'
+  );
+  setStatus(`${conflict.pageName||conflict.file} 已保留草稿並同步 GitHub 最新基準。`);
+}
+
 async function openPublish(mode){
   if(mode==='promote'){
     const snap=await dbGet(PREVIEW_SNAPSHOT_KEY);
@@ -1274,6 +1354,8 @@ async function openPublish(mode){
     if(!(await checkPreviewReady(snap.previewId))){ alert('測試版尚未確認部署完成，不能套用正式網站。'); $('#btnPromote').disabled=true; return; }
   }
   publishMode=mode; loadPublishSettings();
+  lastBaselineConflict=null;
+  $('#baselineConflictActions').hidden=true;
   $('#publishTitle').textContent=mode==='preview'?'發布測試版':'套用正式網站';
   $('#publishIntro').textContent=mode==='preview'
     ? '這一步只更新 /preview/ 測試站，不會改正式首頁。發布前會先自動做完整檢查。'
@@ -1353,7 +1435,34 @@ async function doPublish(){
       $('#btnPromote').disabled=true;
     }
   }catch(err){
-    console.error(err); publishProgress(`失敗：${err.message}`,'error'); setStatus(`發布失敗：${err.message}`);
+    console.error(err);
+    if(err?.code==='BASELINE_MISMATCH'){
+      lastBaselineConflict={
+        file:err.file,
+        pageName:err.pageName,
+        oldSha:err.oldSha,
+        newSha:err.newSha
+      };
+      $('#baselineConflictActions').hidden=false;
+      const oldShort=(err.oldSha||'未知').slice(0,7);
+      const newShort=(err.newSha||'未知').slice(0,7);
+      publishProgress(
+        `偵測到 ${err.pageName||err.file} 的 GitHub 正式檔案已更新。
+`+
+        `草稿沒有被刪除，也沒有重新載入。
+`+
+        `舊基準：${oldShort} → 最新：${newShort}
+
+`+
+        `若這次 GitHub 更新是你自己的更新，請按「保留草稿並同步最新版本」；`+
+        `若不是，先取消並檢查正式網站。`,
+        'error'
+      );
+      setStatus(`發布暫停：${err.pageName||err.file} 的 GitHub 基準已改變；草稿完整保留。`);
+    }else{
+      publishProgress(`失敗：${err.message}`,'error');
+      setStatus(`發布失敗：${err.message}`);
+    }
   }finally{ btn.disabled=false; }
 }
 
@@ -1529,6 +1638,13 @@ $('#btnPreviewPublish').addEventListener('click',()=>openPublish('preview'));
 $('#btnCheckPreview').addEventListener('click',verifyPreviewNow);
 $('#btnPromote').addEventListener('click',()=>openPublish('promote'));
 $('#btnDoPublish').addEventListener('click',doPublish);
+$('#btnSyncBaselineKeepDraft').addEventListener('click',async()=>{
+  const btn=$('#btnSyncBaselineKeepDraft');
+  btn.disabled=true;
+  try{ await syncLatestBaselineKeepDraft(); }
+  catch(err){ console.error(err); publishProgress(`同步失敗：${err.message}`,'error'); setStatus(`同步失敗：${err.message}`); }
+  finally{ btn.disabled=false; }
+});
 $('#btnOpenPreview').addEventListener('click',async()=>{
   const ok=await verifyPreviewNow();
   if(!ok) return;
@@ -1565,7 +1681,7 @@ window.addEventListener('pagehide',()=>{
       $('#btnPromote').disabled=true;
     }
     await loadPage('index.html');
-    setStatus(`${BUILD} 已完成啟動。編輯基準改用 GitHub Repository；草稿版本與可恢復備份已啟用。`);
+    setStatus(`${BUILD} 已完成啟動。GitHub 版本變更時可保留草稿並安全同步基準。`);
   }catch(err){
     console.error(err); setStatus(`啟動失敗：${err.message}`);
   }

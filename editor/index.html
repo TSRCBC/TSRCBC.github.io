@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>CHINON 視覺網站編輯器</title>
-  <link rel="stylesheet" href="editor.css?v=1080">
+  <link rel="stylesheet" href="editor.css?v=1090">
 </head>
 <body class="auth-locked">
   <div id="loginGate" class="login-gate">
@@ -289,6 +289,12 @@
       </div>
       <label class="check"><input id="rememberToken" type="checkbox"> 記住這台電腦的 Token</label>
       <div id="publishProgress" class="publish-progress"></div>
+      <div id="baselineConflictActions" class="baseline-conflict-actions" hidden>
+        <div class="baseline-conflict-note">
+          目前草稿會完整保留。只有在你確認 GitHub 上的新版本可以由目前草稿繼續編輯時，才使用下方同步。
+        </div>
+        <button id="btnSyncBaselineKeepDraft" type="button">保留草稿並同步最新版本</button>
+      </div>
       <div class="dialog-actions">
         <button value="cancel">取消</button>
         <button id="btnDoPublish" type="button" class="primary">開始</button>
@@ -296,6 +302,6 @@
     </form>
   </dialog>
 
-  <script src="editor.js?v=1080"></script>
+  <script src="editor.js?v=1090"></script>
 </body>
 </html>
