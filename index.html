@@ -57,6 +57,10 @@
     grid-column:auto!important;
     grid-row:auto!important;
   }
+  [data-chinon-mobile-order="text-first"] > [data-chinon-mobile-role="tail"]{
+    order:3!important;
+    grid-row:auto!important;
+  }
   [data-chinon-mobile-order="image-first"] > [data-chinon-mobile-role="image"]{
     order:1!important;
     grid-column:auto!important;
@@ -66,6 +70,15 @@
     order:2!important;
     grid-column:auto!important;
     grid-row:auto!important;
+  }
+  [data-chinon-mobile-order="image-first"] > [data-chinon-mobile-role="tail"]{
+    order:3!important;
+    grid-row:auto!important;
+  }
+
+  /* Homepage ABOUT CHINON is a 3-part layout: text / photo / value list. */
+  .story-grid[data-chinon-mobile-order] > [data-chinon-mobile-role="tail"]{
+    grid-column:1 / -1!important;
   }
 
   img[data-chinon-mobile-fit="contain"]{
@@ -118,8 +131,8 @@
 </header>
 
 
-<main>
-  <section class="home-hero">
+<main data-chinon-mobile-order="text-first">
+  <section class="home-hero" data-chinon-mobile-role="text">
     <img class="home-hero-bg" src="assets/uploads/v10-mvizk0lp-1.webp" alt="奇農自然生活" decoding="async" loading="eager" fetchpriority="high">
     <div class="home-hero-wash" data-chinon-entrance="fade" data-chinon-entrance-speed="normal" data-chinon-entrance-delay="0" data-chinon-entrance-repeat="once"></div>
 
@@ -139,19 +152,19 @@
   </section><section class="chinon-video-block"><div class="chinon-video-inner"><div class="chinon-video-heading" data-chinon-entrance="fade" data-chinon-entrance-speed="normal" data-chinon-entrance-delay="1" data-chinon-entrance-repeat="once"><p class="chinon-video-eyebrow">CHINON STORY</p><h2 class="chinon-video-title" style="font-family: &quot;Klee One&quot;, cursive; font-weight: 600;">從一片桑葉，到一杯好茶。</h2></div><div class="chinon-video-shell" data-chinon-entrance="zoom-out" data-chinon-entrance-speed="slow" data-chinon-entrance-delay="0.6" data-chinon-entrance-repeat="once"><iframe title="從一片桑葉，到一杯好茶。" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen="" referrerpolicy="strict-origin-when-cross-origin" loading="lazy" data-chinon-youtube-lazy="1" data-chinon-youtube-src="https://www.youtube.com/embed/QNTl3Amq6W0?playsinline=1&amp;rel=0&amp;autoplay=1&amp;mute=1&amp;controls=1&amp;loop=1&amp;playlist=QNTl3Amq6W0" src="about:blank"></iframe></div></div></section>
 
   <section class="story-band">
-    <div class="container story-grid">
-      <div class="story-copy" data-chinon-mobile-role="text">
+    <div class="container story-grid" data-chinon-mobile-order="text-first">
+      <div class="story-photo" data-chinon-mobile-role="image">
+        <img src="assets/uploads/v10-mv96948h-2.webp" alt="奇農桑葉與土地" loading="lazy" decoding="async">
+      </div><div class="story-copy" data-chinon-mobile-role="text">
         <div class="eyebrow olive">ABOUT CHINON</div>
         <h2 style="font-family: &quot;Klee One&quot;, cursive;">關於奇農 CHINON</h2>
         <p>來自土地的純粹，守護健康的初心。奇農以天然植萃、製茶工藝與安心檢驗為核心，持續把台灣桑葉製成更容易融入日常生活的茶品。</p>
         <a class="btn soft" href="about.html">認識我們 →</a>
-      </div><div class="story-photo" data-chinon-mobile-role="image">
-        <img src="assets/uploads/v10-mv96948h-2.webp" alt="奇農桑葉與土地" loading="lazy" decoding="async">
       </div>
 
       
 
-      <div class="value-list">
+      <div class="value-list" data-chinon-mobile-role="tail">
         <div class="value-item"><span>❧</span><strong>天然植萃</strong><small>純淨自然</small></div>
         <div class="value-item"><span>♡</span><strong>科學實證</strong><small>安心有感</small></div>
         <div class="value-item"><span>⌾</span><strong>健康日常</strong><small>平衡調理</small></div>
@@ -181,7 +194,7 @@
           <p class="body-copy">保留原有秘魯黃金瑪卡產品資訊與有機、產地證明，作為日常健康選擇。</p>
           <a class="btn soft" href="maca.html">探索產品 →</a>
         </div>
-        <img src="assets/uploads/v10-mvj4al8h-1.webp" alt="秘魯黃金瑪卡" loading="lazy" decoding="async">
+        <img src="assets/uploads/v10-mvj5wuht-1.webp" alt="秘魯黃金瑪卡" loading="lazy" decoding="async">
       </article>
     </div>
   </section>
@@ -236,7 +249,7 @@
     </div>
   </section>
 
-  <section class="closing-banner">
+  <section class="closing-banner" data-chinon-mobile-role="image">
     <img src="assets/uploads/v10-mvizk0lp-5.webp" alt="奇農茶園" loading="lazy" decoding="async">
     <div class="closing-overlay"></div>
     <div class="container closing-content">
