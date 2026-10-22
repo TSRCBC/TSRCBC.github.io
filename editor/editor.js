@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const BUILD = 'V10.12 SEO SEARCH';
+const BUILD = 'V10.13 BLOCK LAYOUT';
 const FONT_URL = 'https://fonts.googleapis.com/css2?family=Iansui&family=Klee+One:wght@400;600&family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&family=Noto+Serif+TC:wght@400;500;600;700;800;900&family=Yuji+Syuku&family=Zen+Kurenaido&display=swap';
 
 /* ---------- login ---------- */
@@ -710,6 +710,7 @@ function syncInspector(){
   $('#linkUrl').value=selected.closest('a')?.getAttribute('href')||'';
   syncMobileControls();
   syncAnimationControls();
+  syncBlockToolUi();
 }
 function rgbToHex(rgb){
   const m=String(rgb).match(/\d+/g);
@@ -738,6 +739,216 @@ function applyStyle(prop,value){
 function bindSelect(id,prop){ $('#'+id).addEventListener('change',e=>applyStyle(prop,e.target.value)); }
 
 
+
+
+/* ---------- block / layout tools ---------- */
+const BLOCK_SAFE_STOP = new Set(['HTML','BODY','MAIN']);
+const BLOCK_PROTECTED_SELECTORS = '.site-header,.site-footer,.nav-wrap,.nav-links,.brand';
+const BLOCK_CONTENT_SELECTORS = [
+  '.story-copy','.story-photo','.feature-product-copy','.benefit-copy',
+  '.editorial-card','.news-card','.craft-copy','.craft-image',
+  '.split-story-copy','.split-story-image','.contact-card','.info-card',
+  '.chinon-video-block','.chinon-flow-image-block','article','section'
+].join(',');
+const BLOCK_LAYOUT_SELECTORS = [
+  '.story-grid','.editorial-grid','.craft-row','.split-story',
+  '.two-column-copy','.product-duo','.info-panel-grid','.contact-grid',
+  '.benefit-inner','.story-band'
+].join(',');
+
+function elementShortLabel(el){
+  if(!el) return '尚未選取';
+  const tag=el.tagName?.toLowerCase?.()||'element';
+  const id=el.id ? `#${el.id}` : '';
+  const cls=[...(el.classList||[])]
+    .filter(x=>!['chinon-in','chinon-anim-ready'].includes(x))
+    .slice(0,2)
+    .map(x=>'.'+x)
+    .join('');
+  return `${tag}${id}${cls}`;
+}
+
+function isProtectedBlock(el){
+  if(!el || BLOCK_SAFE_STOP.has(el.tagName)) return true;
+  if(el.matches?.(BLOCK_PROTECTED_SELECTORS)) return true;
+  if(el.closest?.('.site-header,.site-footer') && !el.matches?.('.site-header,.site-footer')) return true;
+  return false;
+}
+
+function meaningfulParent(el){
+  if(!el?.parentElement) return null;
+  let p=el.parentElement;
+  if(BLOCK_SAFE_STOP.has(p.tagName)) return null;
+  if(p.matches?.(BLOCK_PROTECTED_SELECTORS)) return null;
+  return p;
+}
+
+function selectParentLayer(){
+  if(!selected){
+    alert('請先點選一個文字、圖片或區塊。');
+    return;
+  }
+  const p=meaningfulParent(selected);
+  if(!p){
+    setStatus('目前已經到最外層，不能再往上選。');
+    return;
+  }
+  selectElement(p);
+  p.scrollIntoView?.({block:'nearest'});
+  setStatus(`已選取父層：${elementShortLabel(p)}。這一步沒有修改網站內容。`);
+}
+
+function findWholeBlock(el=selected){
+  if(!el) return null;
+
+  // 如果目前元素屬於左右圖文排版，優先選整個排版容器；
+  // 這樣「手機文字在上」可以直接作用在完整圖文區。
+  const responsive=findResponsivePair(el);
+  if(responsive?.container && !isProtectedBlock(responsive.container)){
+    return responsive.container;
+  }
+
+  const layout=el.closest?.(BLOCK_LAYOUT_SELECTORS);
+  if(layout && !isProtectedBlock(layout)) return layout;
+
+  const content=el.closest?.(BLOCK_CONTENT_SELECTORS);
+  if(content && !isProtectedBlock(content)) return content;
+
+  let p=el;
+  for(let depth=0; depth<5 && p; depth++,p=p.parentElement){
+    if(!p.parentElement || BLOCK_SAFE_STOP.has(p.tagName)) break;
+    if(p.parentElement.tagName==='MAIN' && !isProtectedBlock(p)) return p;
+  }
+  return null;
+}
+
+function selectWholeBlock(){
+  if(!selected){
+    alert('請先點選這一區的標題、文字或圖片。');
+    return;
+  }
+  const block=findWholeBlock(selected);
+  if(!block){
+    alert('這個物件目前找不到安全的完整區塊。請改點同一區的標題、說明文字或圖片後再試。');
+    return;
+  }
+  selectElement(block);
+  block.scrollIntoView?.({block:'nearest'});
+  setStatus(`已選取完整區塊：${elementShortLabel(block)}。現在可調手機順序，或使用區塊上移／下移。`);
+}
+
+function blockMoveUnit(el=selected){
+  if(!el) return null;
+  if(isProtectedBlock(el)) return null;
+
+  // 已經選到 section/article/新增區塊時，就移動它本身。
+  if(el.matches?.('section,article,.chinon-video-block,.chinon-flow-image-block')) return el;
+
+  // 內容卡片 / 文案塊可作為移動單位。
+  const content=el.closest?.(
+    '.story-copy,.story-photo,.feature-product,.editorial-card,.news-card,'+
+    '.craft-copy,.craft-image,.split-story-copy,.split-story-image,.contact-card,.info-card'
+  );
+  if(content && !isProtectedBlock(content)) return content;
+
+  // 若是整個 layout 容器，允許移動 layout 本身。
+  if(el.matches?.(BLOCK_LAYOUT_SELECTORS)) return el;
+
+  return el;
+}
+
+function siblingBlock(el,direction){
+  if(!el?.parentElement) return null;
+  let sib=direction==='up' ? el.previousElementSibling : el.nextElementSibling;
+  while(sib){
+    if(sib.id!==HANDLE_ID && !sib.hasAttribute?.('data-chinon-editor-only')){
+      return sib;
+    }
+    sib=direction==='up' ? sib.previousElementSibling : sib.nextElementSibling;
+  }
+  return null;
+}
+
+function moveSelectedBlock(direction){
+  if(!selected){
+    alert('請先選取要移動的區塊。');
+    return;
+  }
+  const unit=blockMoveUnit(selected);
+  if(!unit || !unit.parentElement || isProtectedBlock(unit)){
+    alert('這個物件不能安全移動。請先按「選取父層」或「選取整個區塊」再試。');
+    return;
+  }
+
+  const sibling=siblingBlock(unit,direction);
+  if(!sibling){
+    setStatus(direction==='up' ? '這個區塊已經是目前容器的第一個。' : '這個區塊已經是目前容器的最後一個。');
+    return;
+  }
+
+  // 禁止把區塊跨進 header/footer 等保護區。
+  if(isProtectedBlock(sibling)){
+    alert('不能把內容區塊移入網站導覽列或頁尾。');
+    return;
+  }
+
+  pushUndo();
+
+  if(direction==='up'){
+    unit.parentElement.insertBefore(unit,sibling);
+  }else{
+    unit.parentElement.insertBefore(sibling,unit);
+  }
+
+  selectElement(unit);
+  markDirty();
+  unit.scrollIntoView?.({behavior:'smooth',block:'center'});
+  setStatus(direction==='up' ? '區塊已上移一格。' : '區塊已下移一格。');
+}
+
+function applyQuickMobileOrder(value){
+  if(!selected){
+    alert('請先點選這一組圖文中的標題、文字或圖片。');
+    return;
+  }
+
+  const pair=findResponsivePair(selected);
+  if(!pair){
+    const whole=findWholeBlock(selected);
+    if(whole && whole!==selected) selectElement(whole);
+  }
+
+  const ok=setMobileOrder(value);
+  if(ok){
+    const pair2=findResponsivePair(selected);
+    if(pair2) selectElement(pair2.container);
+    syncBlockToolUi();
+  }
+}
+
+function syncBlockToolUi(){
+  const label=$('#blockCurrentLabel');
+  const hint=$('#blockToolHint');
+  if(label) label.textContent=selected ? elementShortLabel(selected) : '尚未選取';
+
+  const pair=selected ? findResponsivePair(selected) : null;
+  const whole=selected ? findWholeBlock(selected) : null;
+
+  if(hint){
+    if(pair){
+      hint.textContent='已辨識為圖文區：可直接設定手機文字在上／圖片在上，桌機不會改變。';
+    }else if(whole){
+      hint.textContent='已找到內容區塊；可選取整區或上移／下移。若要手機獨立排序，請先選到含圖片＋文字的圖文區。';
+    }else{
+      hint.textContent='先點選標題、文字、圖片或卡片中的任一物件。';
+    }
+  }
+
+  ['btnMobileTextFirstQuick','btnMobileImageFirstQuick','btnMobileFollowQuick'].forEach(id=>{
+    const b=$('#'+id);
+    if(b) b.disabled=!pair;
+  });
+}
 
 /* ---------- SEO / Google search ---------- */
 function getMetaDescription(doc){
@@ -2871,6 +3082,19 @@ $('#backgroundInput').addEventListener('change',async e=>{ await setBackground(e
 $('#btnFloat').addEventListener('click',floatSelected);
 $('#btnUnfloat').addEventListener('click',unfloatSelected);
 $('#btnDeleteAdded').addEventListener('click',deleteAdded);
+$('#btnSelectParent').addEventListener('click',selectParentLayer);
+$('#btnSelectWholeBlock').addEventListener('click',selectWholeBlock);
+$('#btnMoveBlockUp').addEventListener('click',()=>moveSelectedBlock('up'));
+$('#btnMoveBlockDown').addEventListener('click',()=>moveSelectedBlock('down'));
+
+$('#btnSelectParentSide').addEventListener('click',selectParentLayer);
+$('#btnSelectWholeBlockSide').addEventListener('click',selectWholeBlock);
+$('#btnMoveBlockUpSide').addEventListener('click',()=>moveSelectedBlock('up'));
+$('#btnMoveBlockDownSide').addEventListener('click',()=>moveSelectedBlock('down'));
+
+$('#btnMobileTextFirstQuick').addEventListener('click',()=>applyQuickMobileOrder('text-first'));
+$('#btnMobileImageFirstQuick').addEventListener('click',()=>applyQuickMobileOrder('image-first'));
+$('#btnMobileFollowQuick').addEventListener('click',()=>applyQuickMobileOrder(''));
 $('#btnImgLeft').addEventListener('click',()=>alignImage('left'));
 $('#btnImgCenter').addEventListener('click',()=>alignImage('center'));
 $('#btnImgRight').addEventListener('click',()=>alignImage('right'));
@@ -2965,7 +3189,7 @@ window.addEventListener('pagehide',()=>{
     setStatus(
       seoSeeded
         ? `${BUILD} 已完成啟動。已自動預填 ${seoSeeded} 個頁面的建議 SEO 到草稿。`
-        : `${BUILD} 已完成啟動。SEO／Google 搜尋設定已可直接編輯。`
+        : `${BUILD} 已完成啟動。已加入整區選取、區塊上下移動與手機圖文快速排序。`
     );
   }catch(err){
     console.error(err); setStatus(`啟動失敗：${err.message}`);

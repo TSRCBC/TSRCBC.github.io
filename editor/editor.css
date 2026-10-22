@@ -376,3 +376,64 @@ dialog::backdrop{background:rgba(0,0,0,.68)}
   background:#263b22!important;
   color:#dcf1d5!important;
 }
+
+
+/* V10.13 BLOCK LAYOUT */
+.block-tool{
+  border-color:#4b5b6b!important;
+}
+.block-layout-fold .block-actions{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:7px;
+  margin-bottom:10px;
+}
+.block-layout-fold .block-actions.two{
+  grid-template-columns:1fr 1fr;
+}
+.block-layout-fold .block-actions button{
+  width:100%;
+}
+.block-current{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  padding:8px 10px;
+  margin:8px 0 10px;
+  border-radius:8px;
+  background:#151d26;
+  border:1px solid #303c49;
+  font-size:11px;
+}
+.block-current strong{
+  color:#aebdca;
+  flex:0 0 auto;
+}
+.block-current span{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:#e8eef4;
+}
+.mobile-quick-layout{
+  margin-top:8px;
+  padding:10px;
+  border:1px solid #365042;
+  border-radius:9px;
+  background:#132019;
+}
+.mobile-quick-layout>strong{
+  display:block;
+  color:#d9efe2;
+  font-size:12px;
+  margin-bottom:3px;
+}
+.mobile-quick-layout>p{
+  margin:0 0 8px;
+  color:#8fa999;
+  font-size:10px;
+}
+.mobile-quick-layout button{
+  border-color:#496b58;
+}
