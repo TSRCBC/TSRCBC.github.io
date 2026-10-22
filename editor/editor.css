@@ -282,3 +282,12 @@ dialog::backdrop{background:rgba(0,0,0,.68)}
 .video-form input[type="text"],.video-form select{width:100%;box-sizing:border-box}
 .video-form .check{margin:0}
 .video-note{margin:4px 0 0;padding:9px 10px;border-radius:8px;background:#121820;color:#9cabb8;font-size:11px;line-height:1.55}
+
+
+/* V10.11.1 SPEED + ANIMATION FIX */
+.speed-btn{
+  background:#3a2d11!important;
+  border-color:#8b6b22!important;
+  color:#ffe8a0!important;
+}
+.speed-btn:hover{background:#4a3a17!important}

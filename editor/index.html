@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>CHINON 視覺網站編輯器</title>
-  <link rel="stylesheet" href="editor.css?v=1110">
+  <link rel="stylesheet" href="editor.css?v=1112">
 </head>
 <body class="auth-locked">
   <div id="loginGate" class="login-gate">
@@ -51,7 +51,7 @@
       <button id="btnAddImage">＋一般圖片</button>
       <button id="btnFlowImageAbove" class="accent" title="選一個標題或區塊，將圖片插入整個區塊上方">＋圖片區塊 ↑</button>
       <button id="btnFlowImageBelow" class="accent" title="選一個標題或區塊，將圖片插入整個區塊下方">＋圖片區塊 ↓</button>
-      <button id="btnAddVideo" class="accent" title="插入 YouTube 宣傳影片區塊">＋影片區塊</button>
+      <button id="btnAddVideo" class="accent" title="插入 YouTube 宣傳影片；預設放首頁主視覺下方">＋宣傳影片</button>
       <button id="btnReplaceImage" title="點圖片或整張卡片都可以；會自動找主圖">換圖片（自動找主圖）</button>
       <button id="btnFindWixImage" title="跳到本頁下一張仍使用 Wix 網址的圖片">找WIX圖片</button>
       <button id="btnBackground">背景圖</button>
@@ -68,6 +68,7 @@
       <button id="btnSave">儲存草稿</button>
       <button id="btnDraftHistory">草稿版本</button>
       <button id="btnSelfCheck">系統檢查</button>
+      <button id="btnOptimizeSite" class="speed-btn" title="壓縮全站大型圖片並套用載入最佳化">⚡ 全站加速</button>
       <button id="btnReload">重新載入官網</button>
     </div>
 
@@ -87,7 +88,7 @@
 
   <div class="statusbar">
     <span id="status">編輯器啟動中…</span>
-    <span class="build-badge">V10.11</span>
+    <span class="build-badge">V10.11.2</span>
       <span class="status-note">修改會自動暫存；「儲存草稿」會建立可恢復版本。重新載入官網不再刪除備份。</span>
   </div>
 
@@ -414,6 +415,6 @@
     </form>
   </dialog>
 
-  <script src="editor.js?v=1110"></script>
+  <script src="editor.js?v=1112"></script>
 </body>
 </html>

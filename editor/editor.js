@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const BUILD = 'V10.11 MOTION VIDEO';
+const BUILD = 'V10.11.2 PAGE SYNC';
 const FONT_URL = 'https://fonts.googleapis.com/css2?family=Iansui&family=Klee+One:wght@400;600&family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&family=Noto+Serif+TC:wght@400;500;600;700;800;900&family=Yuji+Syuku&family=Zen+Kurenaido&display=swap';
 
 /* ---------- login ---------- */
@@ -94,6 +94,8 @@ let draftSaveTimer = null;
 let currentBaseHash = '';
 let currentBaseRepoSha = '';
 let currentLiveSource = '';
+let currentExpectedTitle = '';
+let pageLoadToken = 0;
 let selected = null;
 let currentDirty = false;
 let dragState = null;
@@ -132,6 +134,20 @@ const FLOAT_PARENT_POS_BACKUP_ATTR = 'data-chinon-v10-parent-position-backup';
 const INTERNAL_ATTRS = [SELECT_ATTR,'data-chinon-v10-editing'];
 
 function setStatus(msg){ statusEl.textContent=msg; }
+
+function titleFromHtml(html){
+  try{
+    return new DOMParser().parseFromString(String(html||''),'text/html').title.trim();
+  }catch{return ''}
+}
+function currentCanvasTitle(){
+  try{return iframe.contentDocument?.title?.trim()||''}catch{return ''}
+}
+function pageIdentityMatches(expectedTitle,html){
+  const t=titleFromHtml(html);
+  return !expectedTitle || !t || t===expectedTitle;
+}
+
 
 /* ---------- IndexedDB ---------- */
 function openDb(){
@@ -314,6 +330,12 @@ function toEditorSrcdoc(html){
 function captureCurrentPage(){
   const doc=iframe.contentDocument;
   if(!doc?.documentElement || !currentFile) return;
+  const canvasTitle=(doc.title||'').trim();
+  if(currentExpectedTitle && canvasTitle && canvasTitle!==currentExpectedTitle){
+    console.warn('阻止錯頁草稿寫入', {currentFile,currentExpectedTitle,canvasTitle});
+    setStatus(`頁面同步保護：目前畫布是「${canvasTitle}」，不會誤存到 ${currentFile}。`);
+    return;
+  }
   const html=cleanDocumentHtml(doc);
   pageDrafts.set(currentFile,{
     html,
@@ -383,52 +405,85 @@ function navigateFrame({src=null,srcdoc=null}){
 
 /* ---------- load pages ---------- */
 async function loadPage(file,{forceLive=false,skipCapture=false}={}){
-  if(!skipCapture && currentFile && hasLoadedPage && iframe.contentDocument?.documentElement){
-    captureCurrentPage();
-    await persistDraftMap({silent:true});
-  }
+  const myToken=++pageLoadToken;
+  const pageName=SITE_PAGES.find(x=>x.file===file)?.name||file;
+  const select=$('#pageSelect');
+  select.disabled=true;
 
-  currentFile=file;
-  hasLoadedPage=false;
-  $('#pageSelect').value=file;
-  selected=null;
-  $('#selectedLabel').textContent='尚未選取';
-  undoStack=[]; redoStack=[];
-  setStatus(`正在載入 ${SITE_PAGES.find(x=>x.file===file)?.name||file}…`);
-
-  const source=await fetchEditorSource(file);
-  const live=source.text;
-  currentLiveSource=live;
-  currentBaseHash=await hashText(live);
-  currentBaseRepoSha=source.sha||'';
-
-  const draft=pageDrafts.get(file);
-  if(!forceLive && draft?.html && /<body[\s>]/i.test(draft.html) && draft.html.length>300){
-    // V10.6 舊草稿沒有 baseRepoSha：絕不刪除，第一次由 V10.7 安全接管。
-    if(!draft.baseRepoSha && currentBaseRepoSha){
-      draft.baseRepoSha=currentBaseRepoSha;
-      draft.baseHash=draft.baseHash||currentBaseHash;
-      pageDrafts.set(file,draft);
+  try{
+    if(!skipCapture && currentFile && hasLoadedPage && iframe.contentDocument?.documentElement){
+      captureCurrentPage();
       await persistDraftMap({silent:true});
     }
-    currentDirty=!!draft.dirty;
-    currentBaseHash=draft.baseHash||currentBaseHash;
-    currentBaseRepoSha=draft.baseRepoSha||currentBaseRepoSha;
-    await navigateFrame({srcdoc:toEditorSrcdoc(draft.html)});
-    if(source.warning){
-      setStatus(`${SITE_PAGES.find(x=>x.file===file)?.name||file} 已載入本機草稿；GitHub API 暫時不可用，稍後發布時會再次驗證。`);
+    if(myToken!==pageLoadToken) return;
+
+    currentFile=file;
+    hasLoadedPage=false;
+    select.value=file;
+    selected=null;
+    $('#selectedLabel').textContent='尚未選取';
+    undoStack=[]; redoStack=[];
+    setStatus(`正在載入 ${pageName}…`);
+
+    const source=await fetchEditorSource(file);
+    if(myToken!==pageLoadToken) return;
+
+    const live=source.text;
+    currentLiveSource=live;
+    currentExpectedTitle=titleFromHtml(live);
+    currentBaseHash=await hashText(live);
+    currentBaseRepoSha=source.sha||'';
+
+    let draft=pageDrafts.get(file);
+
+    // If a historical race wrote another page into this page's draft slot,
+    // preserve it in history and self-heal by loading the correct live page.
+    if(!forceLive && draft?.html && !pageIdentityMatches(currentExpectedTitle,draft.html)){
+      await addDraftHistory(file,draft,{reason:'頁面錯置自動隔離',silent:true});
+      console.warn('Wrong-page draft isolated', {
+        file,
+        expected:currentExpectedTitle,
+        draftTitle:titleFromHtml(draft.html)
+      });
+      draft=null;
+      setStatus(`${pageName} 發現舊草稿其實屬於其他頁面，已保存到草稿版本並自動載入正確頁面。`);
     }
-  }else{
-    currentDirty=false;
-    // 直接用 GitHub Repository 裡的 HTML 當編輯基準，避免 GitHub Pages 部署延遲造成假衝突。
-    await navigateFrame({srcdoc:toEditorSrcdoc(live)});
-    pageDrafts.set(file,{
-      html:live,
-      baseHash:currentBaseHash,
-      baseRepoSha:currentBaseRepoSha||'',
-      dirty:false
-    });
-    await persistDraftMap({silent:true});
+
+    if(myToken!==pageLoadToken) return;
+
+    if(!forceLive && draft?.html && /<body[\s>]/i.test(draft.html) && draft.html.length>300){
+      if(!draft.baseRepoSha && currentBaseRepoSha){
+        draft.baseRepoSha=currentBaseRepoSha;
+        draft.baseHash=draft.baseHash||currentBaseHash;
+        pageDrafts.set(file,draft);
+        await persistDraftMap({silent:true});
+      }
+      currentDirty=!!draft.dirty;
+      currentBaseHash=draft.baseHash||currentBaseHash;
+      currentBaseRepoSha=draft.baseRepoSha||currentBaseRepoSha;
+      await navigateFrame({srcdoc:toEditorSrcdoc(draft.html)});
+    }else{
+      currentDirty=false;
+      await navigateFrame({srcdoc:toEditorSrcdoc(live)});
+      pageDrafts.set(file,{
+        html:live,
+        baseHash:currentBaseHash,
+        baseRepoSha:currentBaseRepoSha||'',
+        dirty:false
+      });
+      await persistDraftMap({silent:true});
+    }
+
+    if(myToken!==pageLoadToken) return;
+
+    const loadedTitle=currentCanvasTitle();
+    if(currentExpectedTitle && loadedTitle && loadedTitle!==currentExpectedTitle){
+      throw new Error(`頁面同步驗證失敗：選擇「${pageName}」，但畫布載入「${loadedTitle}」。`);
+    }
+
+    select.value=file;
+  }finally{
+    if(myToken===pageLoadToken) select.disabled=false;
   }
 }
 async function reloadCurrentFromLive(){
@@ -987,12 +1042,44 @@ function setEntranceOption(attr,value){
 }
 
 function previewEntranceAnimation(){
-  if(!selected || !selected.getAttribute(ENTRANCE_ATTR)) return;
-  ensureSiteEffects();
-  selected.classList.add('chinon-anim-ready');
-  selected.classList.remove('chinon-in');
-  void selected.offsetWidth;
-  requestAnimationFrame(()=>selected?.classList.add('chinon-in'));
+  if(!selected){
+    alert('請先選取要預覽動畫的文字、圖片、按鈕或區塊。');
+    return;
+  }
+  const effect=selected.getAttribute(ENTRANCE_ATTR) || $('#entranceEffect')?.value || '';
+  if(!effect){
+    alert('請先選一個動畫效果，再按「預覽動畫」。');
+    return;
+  }
+
+  const speed=selected.getAttribute(ENTRANCE_SPEED_ATTR) || $('#entranceSpeed')?.value || 'normal';
+  const delayRaw=selected.getAttribute(ENTRANCE_DELAY_ATTR) || $('#entranceDelay')?.value || '0';
+  const duration=speed==='fast'?450:speed==='slow'?1000:700;
+  const delay=Math.max(0,Number(delayRaw)||0)*1000;
+
+  const start={opacity:0,transform:'none'};
+  if(effect==='fade-up') start.transform='translateY(28px)';
+  else if(effect==='fade-down') start.transform='translateY(-28px)';
+  else if(effect==='slide-left') start.transform='translateX(-36px)';
+  else if(effect==='slide-right') start.transform='translateX(36px)';
+  else if(effect==='zoom-in') start.transform='scale(.94)';
+  else if(effect==='zoom-out') start.transform='scale(1.06)';
+
+  try{
+    selected.getAnimations?.().forEach(a=>{
+      if(a.id==='chinon-editor-preview') a.cancel();
+    });
+    const anim=selected.animate(
+      [start,{opacity:1,transform:'none'}],
+      {duration,delay,easing:'cubic-bezier(.22,.8,.28,1)',fill:'none'}
+    );
+    anim.id='chinon-editor-preview';
+    selected.scrollIntoView?.({behavior:'smooth',block:'center'});
+    setStatus(`正在預覽「${effect}」動畫。這只是編輯器預覽，不會額外修改內容。`);
+  }catch(err){
+    console.error(err);
+    alert(`動畫預覽失敗：${err.message}`);
+  }
 }
 
 function clearEntranceAnimation(){
@@ -1187,21 +1274,34 @@ function fileToDataUrl(file){
     const r=new FileReader(); r.onload=()=>resolve(r.result); r.onerror=reject; r.readAsDataURL(file);
   });
 }
-async function prepareImageDataUrl(file){
-  if(!file) return '';
-  if(!/^image\//i.test(file.type||'')) throw new Error('請選擇圖片檔案。');
-  if(file.size<=2*1024*1024) return fileToDataUrl(file);
+async function optimizeImageBlob(blob,{maxSide=1920,quality=.88}={}){
+  const bitmap=await createImageBitmap(blob);
   try{
-    const bitmap=await createImageBitmap(file);
-    const maxSide=2200;
     const scale=Math.min(1,maxSide/Math.max(bitmap.width,bitmap.height));
     const w=Math.max(1,Math.round(bitmap.width*scale));
     const h=Math.max(1,Math.round(bitmap.height*scale));
-    const canvas=document.createElement('canvas'); canvas.width=w; canvas.height=h;
+    const canvas=document.createElement('canvas');
+    canvas.width=w; canvas.height=h;
     const ctx=canvas.getContext('2d',{alpha:true});
-    ctx.drawImage(bitmap,0,0,w,h); bitmap.close?.();
-    const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('圖片壓縮失敗')),'image/webp',0.9));
-    return fileToDataUrl(new File([blob],'optimized.webp',{type:'image/webp'}));
+    ctx.drawImage(bitmap,0,0,w,h);
+    return await new Promise((resolve,reject)=>
+      canvas.toBlob(b=>b?resolve(b):reject(new Error('圖片壓縮失敗')),'image/webp',quality)
+    );
+  }finally{
+    bitmap.close?.();
+  }
+}
+
+async function prepareImageDataUrl(file){
+  if(!file) return '';
+  if(!/^image\//i.test(file.type||'')) throw new Error('請選擇圖片檔案。');
+  if(/svg|gif/i.test(file.type||'')) return fileToDataUrl(file);
+  if(file.size<=350*1024) return fileToDataUrl(file);
+
+  try{
+    const optimized=await optimizeImageBlob(file,{maxSide:1920,quality:.88});
+    if(optimized.size >= file.size*.90) return fileToDataUrl(file);
+    return fileToDataUrl(new File([optimized],'optimized.webp',{type:'image/webp'}));
   }catch(err){
     console.warn('圖片最佳化失敗，改用原檔',err);
     return fileToDataUrl(file);
@@ -1578,6 +1678,179 @@ function applyLink(){
   markDirty();
 }
 
+
+/* ---------- site-wide performance optimizer ---------- */
+function isLocalAssetUrl(src){
+  if(!src || /^data:/i.test(src) || /^blob:/i.test(src)) return false;
+  try{
+    const u=new URL(src,location.origin+'/');
+    return u.origin===location.origin && /\/assets\//i.test(u.pathname);
+  }catch{return false}
+}
+
+function ensurePerformanceHints(doc){
+  const fontCss=[...doc.querySelectorAll('link[rel="stylesheet"]')]
+    .some(l=>/fonts\.googleapis\.com/i.test(l.getAttribute('href')||''));
+
+  if(fontCss && !doc.querySelector('link[data-chinon-preconnect="googleapis"]')){
+    const a=doc.createElement('link');
+    a.rel='preconnect';
+    a.href='https://fonts.googleapis.com';
+    a.setAttribute('data-chinon-preconnect','googleapis');
+    doc.head.prepend(a);
+  }
+  if(fontCss && !doc.querySelector('link[data-chinon-preconnect="gstatic"]')){
+    const b=doc.createElement('link');
+    b.rel='preconnect';
+    b.href='https://fonts.gstatic.com';
+    b.crossOrigin='anonymous';
+    b.setAttribute('data-chinon-preconnect','gstatic');
+    doc.head.prepend(b);
+  }
+
+  const imgs=[...doc.querySelectorAll('img')];
+  const contentImgs=imgs.filter(img=>!img.closest('.site-header,.site-footer,.brand,.brand-inline'));
+  const hero=doc.querySelector('.home-hero-bg,.page-hero img,.hero img') || contentImgs[0] || null;
+
+  imgs.forEach(img=>{
+    img.setAttribute('decoding','async');
+    if(img===hero){
+      img.setAttribute('loading','eager');
+      img.setAttribute('fetchpriority','high');
+    }else if(!img.closest('.site-header,.brand,.brand-inline')){
+      img.setAttribute('loading','lazy');
+      img.removeAttribute('fetchpriority');
+    }
+  });
+}
+
+async function optimizeDocumentImages(doc,cache,stats){
+  ensurePerformanceHints(doc);
+  const imgs=[...doc.querySelectorAll('img')];
+
+  for(const img of imgs){
+    const src=img.getAttribute('src')||'';
+    if(!isLocalAssetUrl(src)) continue;
+    if(/chinon-logo|favicon/i.test(src)) continue;
+    if(/\.(svg|gif)(?:[?#]|$)/i.test(src)) continue;
+
+    if(cache.has(src)){
+      const cached=cache.get(src);
+      if(cached?.dataUrl){
+        img.setAttribute('src',cached.dataUrl);
+        stats.reused++;
+      }
+      continue;
+    }
+
+    try{
+      const abs=new URL(src,location.origin+'/').href;
+      const res=await fetch(`${abs}${abs.includes('?')?'&':'?'}chinonOpt=${Date.now()}`,{cache:'no-store'});
+      if(!res.ok) continue;
+      const blob=await res.blob();
+
+      stats.scanned++;
+      stats.originalBytes+=blob.size;
+
+      if(blob.size<350*1024 || !/^image\/(png|jpeg|jpg|webp)$/i.test(blob.type||'')){
+        cache.set(src,{dataUrl:null});
+        stats.keptBytes+=blob.size;
+        continue;
+      }
+
+      const optimized=await optimizeImageBlob(blob,{maxSide:1920,quality:.88});
+      if(optimized.size >= blob.size*.90){
+        cache.set(src,{dataUrl:null});
+        stats.keptBytes+=blob.size;
+        continue;
+      }
+
+      const dataUrl=await fileToDataUrl(new File([optimized],'site-optimized.webp',{type:'image/webp'}));
+      cache.set(src,{dataUrl});
+      img.setAttribute('src',dataUrl);
+      stats.optimized++;
+      stats.optimizedBytes+=optimized.size;
+    }catch(err){
+      console.warn('略過無法最佳化的圖片',src,err);
+      stats.failed++;
+    }
+  }
+}
+
+async function optimizeWholeSite(){
+  if(!confirm(
+    '「全站加速」會建立 8 個頁面的新草稿：\n\n'+
+    '• 大型 PNG/JPG 轉成 WebP\n'+
+    '• 首圖優先載入\n'+
+    '• 其他圖片延遲載入\n'+
+    '• Google Fonts 加入預連線\n\n'+
+    '正式網站不會立刻改變，仍要先發布測試版確認。\n\n確定開始？'
+  )) return;
+
+  const btn=$('#btnOptimizeSite');
+  btn.disabled=true;
+  const cache=new Map();
+  const stats={scanned:0,optimized:0,reused:0,failed:0,originalBytes:0,optimizedBytes:0,keptBytes:0};
+
+  try{
+    if(hasLoadedPage) captureCurrentPage();
+    await persistDraftMap({silent:true});
+    const settings=readStoredRepoSettings();
+
+    for(let i=0;i<SITE_PAGES.length;i++){
+      const page=SITE_PAGES[i];
+      setStatus(`全站加速：正在處理 ${page.name}（${i+1}/${SITE_PAGES.length}）…`);
+
+      const repo=await fetchRepoFileState(page.file,settings);
+      const existing=pageDrafts.get(page.file);
+      const source=existing?.html || repo.text;
+
+      assertSafeHtml(source,page.name);
+      const doc=new DOMParser().parseFromString(source,'text/html');
+      await optimizeDocumentImages(doc,cache,stats);
+      stripEditorArtifacts(doc);
+      const optimizedHtml=serializeDoc(doc);
+
+      pageDrafts.set(page.file,{
+        html:optimizedHtml,
+        baseHash:existing?.baseHash || await hashText(repo.text),
+        baseRepoSha:existing?.baseRepoSha || repo.sha,
+        dirty:true
+      });
+    }
+
+    await persistDraftMap({silent:true});
+    currentDirty=true;
+
+    const current=pageDrafts.get(currentFile);
+    if(current?.html) await navigateFrame({srcdoc:toEditorSrcdoc(current.html)});
+
+    $('#btnPromote').disabled=true;
+    latestPreviewCommit='';
+
+    const beforeMB=(stats.originalBytes/1024/1024).toFixed(1);
+    const afterBytes=stats.optimizedBytes+stats.keptBytes;
+    const afterMB=(afterBytes/1024/1024).toFixed(1);
+    const saved=stats.originalBytes>0 ? Math.max(0,Math.round((1-afterBytes/stats.originalBytes)*100)) : 0;
+
+    setStatus(`全站加速草稿完成：最佳化 ${stats.optimized} 張大型圖片，估計 ${beforeMB} MB → ${afterMB} MB（約省 ${saved}%）。請先發布測試版。`);
+    alert(
+      `全站加速草稿已完成。\n\n`+
+      `大型圖片最佳化：${stats.optimized} 張\n`+
+      `掃描：${stats.scanned} 張\n`+
+      `估計圖片量：${beforeMB} MB → ${afterMB} MB\n`+
+      `約減少：${saved}%\n\n`+
+      `正式網站尚未修改。\n請依原流程：① 發布測試版 → ② 實際檢查 → ③ 套用正式網站。`
+    );
+  }catch(err){
+    console.error(err);
+    alert(`全站加速失敗：${err.message}\n\n目前正式網站沒有被修改。`);
+    setStatus(`全站加速失敗：${err.message}`);
+  }finally{
+    btn.disabled=false;
+  }
+}
+
 /* ---------- publish snapshot ---------- */
 function extFromMime(mime){
   if(mime.includes('png')) return 'png';
@@ -1596,22 +1869,29 @@ async function dataUrlToAsset(dataUrl){
   return {ext:extFromMime(blob.type||''),base64:bytesToBase64(new Uint8Array(await blob.arrayBuffer()))};
 }
 async function replaceDataUrls(doc,assetFiles,state){
-  const imgs=[...doc.querySelectorAll('img[src^="data:"]')];
-  for(const img of imgs){
-    const a=await dataUrlToAsset(img.getAttribute('src'));
+  state.dataMap ||= new Map();
+
+  async function assetPathFor(dataUrl){
+    if(state.dataMap.has(dataUrl)) return state.dataMap.get(dataUrl);
+    const a=await dataUrlToAsset(dataUrl);
     const path=`assets/uploads/v10-${state.id}-${state.n++}.${a.ext}`;
     assetFiles.set(path,{content:a.base64,encoding:'base64'});
-    img.setAttribute('src',path);
+    state.dataMap.set(dataUrl,path);
+    return path;
   }
+
+  const imgs=[...doc.querySelectorAll('img[src^="data:"]')];
+  for(const img of imgs){
+    img.setAttribute('src',await assetPathFor(img.getAttribute('src')));
+  }
+
   const styled=[...doc.querySelectorAll('[style*="data:"]')];
   const rx=/url\(\s*(['"]?)(data:[^)'"]+)\1\s*\)/ig;
   for(const el of styled){
-    let st=el.getAttribute('style')||''; const matches=[...st.matchAll(rx)];
+    let st=el.getAttribute('style')||'';
+    const matches=[...st.matchAll(rx)];
     for(const m of matches){
-      const a=await dataUrlToAsset(m[2]);
-      const path=`assets/uploads/v10-${state.id}-${state.n++}.${a.ext}`;
-      assetFiles.set(path,{content:a.base64,encoding:'base64'});
-      st=st.replace(m[2],path);
+      st=st.replace(m[2],await assetPathFor(m[2]));
     }
     el.setAttribute('style',st);
   }
@@ -2228,6 +2508,14 @@ iframe.addEventListener('load',()=>{
     hasLoadedPage=true;
     injectEditorUi(doc);
     selected=null; $('#selectedLabel').textContent='尚未選取';
+
+    const canvasTitle=(doc?.title||'').trim();
+    if(currentExpectedTitle && canvasTitle && canvasTitle!==currentExpectedTitle){
+      setStatus(`頁面同步警告：下拉選單是 ${currentFile}，但畫布目前是「${canvasTitle}」。系統不會把這頁誤存。`);
+      return;
+    }
+
+    $('#pageSelect').value=currentFile||'index.html';
     if(currentDirty){
       setStatus(`${SITE_PAGES.find(x=>x.file===currentFile)?.name||currentFile} 已載入本機草稿；重新整理後內容已保留。`);
     }else{
@@ -2241,6 +2529,7 @@ $('#pageSelect').addEventListener('change',async e=>{
 });
 $('#btnReload').addEventListener('click',reloadCurrentFromLive);
 $('#btnSelfCheck').addEventListener('click',runSelfCheckUi);
+$('#btnOptimizeSite').addEventListener('click',optimizeWholeSite);
 $('#btnRunSelfCheck').addEventListener('click',runSelfCheckUi);
 $('#btnCloseSelfCheck').addEventListener('click',()=>$('#selfCheckDialog').close());
 $('#btnSave').addEventListener('click',async()=>{
@@ -2383,7 +2672,7 @@ window.addEventListener('pagehide',()=>{
       $('#btnPromote').disabled=true;
     }
     await loadPage('index.html');
-    setStatus(`${BUILD} 已完成啟動。已加入進場動畫、YouTube 影片區塊與收合式手機進階設定。`);
+    setStatus(`${BUILD} 已完成啟動。已修正頁面錯置、動畫預覽，並保留全站加速與宣傳影片功能。`);
   }catch(err){
     console.error(err); setStatus(`啟動失敗：${err.message}`);
   }
