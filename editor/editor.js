@@ -1,7 +1,8 @@
 (() => {
 'use strict';
 
-const BUILD = 'V10.14 ANALYTICS';
+const BUILD = 'V10.14.1 ANALYTICS FIX';
+window.CHINON_ACTIVE_BUILD = BUILD;
 const FONT_URL = 'https://fonts.googleapis.com/css2?family=Iansui&family=Klee+One:wght@400;600&family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&family=Noto+Serif+TC:wght@400;500;600;700;800;900&family=Yuji+Syuku&family=Zen+Kurenaido&display=swap';
 
 /* ---------- login ---------- */
@@ -1029,24 +1030,40 @@ function syncAnalyticsControls(){
   try{id=gaIdFromDoc(iframe.contentDocument)||'';}catch{}
   if(!id) id=normalizeGaId(localStorage.getItem(GA_PREF_KEY)||'');
   input.value=id;
-  status.textContent=id ? `目前偵測到：${id}` : '尚未偵測到 Google Analytics';
+  status.textContent=id ? `目前頁面偵測到：${id}` : '目前頁面尚未偵測到 Google Analytics';
   status.classList.toggle('ok',!!id);
 }
 async function applyGaAllPages(){
   const id=normalizeGaId($('#gaMeasurementId')?.value);
+  const result=$('#gaApplyResult');
+  const btn=$('#btnApplyGaAll');
+
   if(!isValidGaId(id)){
-    alert('請先貼上正確的 GA4 評估 ID，例如 G-PSW1MY7HB4。');
+    if(result){ result.textContent='❌ 評估 ID 格式不正確，請確認是 G- 開頭。'; result.className='analytics-result error'; }
+    alert('請先貼上正確的 GA4 評估 ID，例如 G-0HFR5HDN82。');
     return;
   }
-  const btn=$('#btnApplyGaAll');
-  if(btn) btn.disabled=true;
+
+  const originalText=btn?.textContent||'套用到 8 個頁面';
+  if(btn){ btn.disabled=true; btn.textContent='套用中 0 / 8…'; }
+  if(result){ result.textContent=`⏳ 正在準備套用 ${id}…`; result.className='analytics-result working'; }
+  setStatus(`Google Analytics ${id}：準備套用到 8 個頁面…`);
+
   try{
     if(hasLoadedPage) captureCurrentPage();
     await persistDraftMap({silent:true});
     const settings=readStoredRepoSettings();
     let changed=0;
+    let processed=0;
+    const verified=[];
 
     for(const page of SITE_PAGES){
+      processed++;
+      if(btn) btn.textContent=`套用中 ${processed} / ${SITE_PAGES.length}…`;
+      if(result) result.textContent=`⏳ ${processed} / ${SITE_PAGES.length}：正在處理「${page.name}」…`;
+      setStatus(`GA4：${processed}/${SITE_PAGES.length} 正在處理 ${page.name}…`);
+      await new Promise(resolve=>setTimeout(resolve,0));
+
       const existing=pageDrafts.get(page.file);
       let source=existing?.html||'';
       let repo=null;
@@ -1061,14 +1078,38 @@ async function applyGaAllPages(){
       ensurePageId(doc,page.file);
       const before=gaIdFromDoc(doc);
       applyGaToDocument(doc,id);
+
+      const detected=gaIdFromDoc(doc);
+      if(detected!==id){
+        throw new Error(`${page.name} 寫入後驗證失敗：預期 ${id}，實際 ${detected||'未偵測到'}`);
+      }
+      verified.push(page.file);
+
       const out=serializeDoc(doc);
       const baseHash=existing?.baseHash || (repo?.text ? await hashText(repo.text) : await hashText(source));
       const baseRepoSha=existing?.baseRepoSha || repo?.sha || '';
       pageDrafts.set(page.file,{html:out,baseHash,baseRepoSha,dirty:true});
       if(before!==id) changed++;
     }
+
+    if(verified.length!==SITE_PAGES.length){
+      throw new Error(`只驗證完成 ${verified.length}/${SITE_PAGES.length} 頁，已停止。`);
+    }
+
     localStorage.setItem(GA_PREF_KEY,id);
     await persistDraftMap({silent:true});
+
+    // 再從草稿 Map 做第二次完整核對，避免「畫面說成功但草稿沒寫進去」。
+    const failed=[];
+    for(const page of SITE_PAGES){
+      const draft=pageDrafts.get(page.file);
+      const doc=new DOMParser().parseFromString(draft?.html||'','text/html');
+      if(gaIdFromDoc(doc)!==id) failed.push(page.name);
+    }
+    if(failed.length){
+      throw new Error(`草稿二次驗證失敗：${failed.join('、')}`);
+    }
+
     if(currentFile){
       const cur=pageDrafts.get(currentFile);
       if(cur?.html){
@@ -1076,12 +1117,24 @@ async function applyGaAllPages(){
         await navigateFrame({srcdoc:toEditorSrcdoc(cur.html)});
       }
     }
+
     $('#btnPromote').disabled=true;
     latestPreviewCommit='';
     syncAnalyticsControls();
-    alert(`Google Analytics ${id} 已套用到 8 個頁面草稿。\n\n正式網站尚未修改。\n請照原流程發布測試版並確認後，再套用正式網站。`);
+
+    if(result){
+      result.textContent=`✅ 已完成：${id} 已寫入並驗證 8 / 8 頁草稿${changed ? `（本次變更 ${changed} 頁）` : '（8 頁原本已是相同 ID）'}。`;
+      result.className='analytics-result success';
+    }
+    setStatus(`✅ Google Analytics ${id} 已套用並驗證 8/8 頁草稿。下一步：發布測試版。`);
+    alert(`✅ Google Analytics 套用完成\n\n評估 ID：${id}\n已寫入並驗證：8 / 8 頁草稿\n本次實際變更：${changed} 頁\n\n正式網站尚未修改。\n下一步請：① 發布測試版 → ② 檢查 → ③ 套用正式網站。`);
+  }catch(err){
+    console.error('GA4 全站套用失敗',err);
+    if(result){ result.textContent=`❌ 套用失敗：${err?.message||err}`; result.className='analytics-result error'; }
+    setStatus(`❌ Google Analytics 套用失敗：${err?.message||err}`);
+    alert(`Google Analytics 套用失敗。\n\n${err?.message||err}\n\n目前不會宣稱已完成，請依畫面錯誤處理。`);
   }finally{
-    if(btn) btn.disabled=false;
+    if(btn){ btn.disabled=false; btn.textContent=originalText; }
   }
 }
 async function removeGaAllPages(){
@@ -3407,7 +3460,7 @@ window.addEventListener('pagehide',()=>{
     setStatus(
       seoSeeded
         ? `${BUILD} 已完成啟動。已自動預填 ${seoSeeded} 個頁面的建議 SEO 到草稿。`
-        : `${BUILD} 已完成啟動。已修正首頁「關於奇農」手機排序，並保留區塊工具與 SEO。`
+        : `${BUILD} 已完成啟動。Analytics 套用已加入 8/8 頁寫入驗證與明確完成回饋。`
     );
   }catch(err){
     console.error(err); setStatus(`啟動失敗：${err.message}`);

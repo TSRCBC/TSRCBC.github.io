@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>CHINON 視覺網站編輯器</title>
-  <link rel="stylesheet" href="editor.css?v=1131">
+  <link rel="stylesheet" href="editor.css?v=1141">
 </head>
 <body class="auth-locked">
   <div id="loginGate" class="login-gate">
@@ -32,7 +32,7 @@
 
   <header class="topbar">
     <div class="brand">
-      <strong>CHINON 編輯器 <span id="buildLabel">載入中…</span></strong>
+      <strong>CHINON 編輯器 <span id="buildLabel">V10.14.1 ANALYTICS FIX</span></strong>
       <span>同源畫布・先測試版・確認後再套正式站</span>
     </div>
 
@@ -92,7 +92,7 @@
 
   <div class="statusbar">
     <span id="status">編輯器啟動中…</span>
-    <span class="build-badge">V10.14</span>
+    <span class="build-badge">V10.14.1</span>
       <span class="status-note">修改會自動暫存；「儲存草稿」會建立可恢復版本。重新載入官網不再刪除備份。</span>
   </div>
 
@@ -334,6 +334,7 @@
             <input id="gaMeasurementId" type="text" autocomplete="off" spellcheck="false" placeholder="G-XXXXXXXXXX">
           </label>
           <div id="gaStatus" class="analytics-status">尚未偵測到 Google Analytics</div>
+          <div id="gaApplyResult" class="analytics-result" aria-live="polite">尚未套用。</div>
 
           <div class="analytics-actions">
             <button id="btnApplyGaAll" type="button" class="primary">套用到 8 個頁面</button>
@@ -523,6 +524,17 @@
     </form>
   </dialog>
 
-  <script src="editor.js?v=1131"></script>
+  <script src="editor.js?v=1141"></script>
+  <script>
+    window.setTimeout(function(){
+      var expected='V10.14.1 ANALYTICS FIX';
+      if(window.CHINON_ACTIVE_BUILD!==expected){
+        var s=document.getElementById('status');
+        if(s) s.textContent='版本載入異常：HTML 已更新，但 JavaScript 仍是舊快取。請按 Ctrl + Shift + R。';
+        var b=document.getElementById('buildLabel');
+        if(b){ b.textContent='快取版本不一致'; b.style.color='#ff8b8b'; }
+      }
+    },900);
+  </script>
 </body>
 </html>
