@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const BUILD = 'V10.10.2 SMART REPLACE';
+const BUILD = 'V10.11 MOTION VIDEO';
 const FONT_URL = 'https://fonts.googleapis.com/css2?family=Iansui&family=Klee+One:wght@400;600&family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&family=Noto+Serif+TC:wght@400;500;600;700;800;900&family=Yuji+Syuku&family=Zen+Kurenaido&display=swap';
 
 /* ---------- login ---------- */
@@ -115,6 +115,13 @@ const MOBILE_ORDER_ATTR = 'data-chinon-mobile-order';
 const MOBILE_ROLE_ATTR = 'data-chinon-mobile-role';
 const MOBILE_FIT_ATTR = 'data-chinon-mobile-fit';
 const MOBILE_FIT_WRAP_ATTR = 'data-chinon-mobile-fit-wrap';
+const SITE_EFFECT_STYLE_ID = 'chinon-site-effects';
+const SITE_EFFECT_SCRIPT_ID = 'chinon-site-effects-runtime';
+const ENTRANCE_ATTR = 'data-chinon-entrance';
+const ENTRANCE_SPEED_ATTR = 'data-chinon-entrance-speed';
+const ENTRANCE_DELAY_ATTR = 'data-chinon-entrance-delay';
+const ENTRANCE_REPEAT_ATTR = 'data-chinon-entrance-repeat';
+const VIDEO_BLOCK_CLASS = 'chinon-video-block';
 const FLOW_IMAGE_BLOCK_CLASS = 'chinon-flow-image-block';
 const SELECT_ATTR = 'data-chinon-v10-selected';
 const ADDED_ATTR = 'data-chinon-v10-added';
@@ -283,6 +290,13 @@ function cleanDocumentHtml(doc){
   clone.querySelectorAll(`[${SELECT_ATTR}]`).forEach(el=>el.removeAttribute(SELECT_ATTR));
   clone.querySelectorAll('[contenteditable]').forEach(el=>el.removeAttribute('contenteditable'));
   clone.querySelectorAll('[data-chinon-v10-editing]').forEach(el=>el.removeAttribute('data-chinon-v10-editing'));
+  clone.querySelectorAll('.chinon-in,.chinon-anim-ready').forEach(el=>{
+    el.classList.remove('chinon-in','chinon-anim-ready');
+    if(!el.getAttribute('class')) el.removeAttribute('class');
+  });
+  clone.querySelectorAll('iframe[data-chinon-youtube-lazy="1"][data-chinon-youtube-src]').forEach(el=>{
+    el.setAttribute('src','about:blank');
+  });
   clone.querySelector('base[data-chinon-v10-base]')?.remove();
   return '<!doctype html>\n'+clone.outerHTML;
 }
@@ -451,9 +465,13 @@ function injectEditorUi(doc){
     }
     [${FLOAT_ATTR}]{cursor:move!important;touch-action:none!important;user-select:none!important;-webkit-user-select:none!important}
     img[${FLOAT_ATTR}]{-webkit-user-drag:none!important}
+    .${VIDEO_BLOCK_CLASS} iframe{pointer-events:none!important}
   `;
   doc.head.appendChild(style);
   if(doc.getElementById(RESPONSIVE_STYLE_ID)) ensureResponsiveStyle(doc);
+  if(doc.getElementById(SITE_EFFECT_STYLE_ID) || doc.getElementById(SITE_EFFECT_SCRIPT_ID)){
+    setTimeout(()=>doc.defaultView?.CHINON_SITE_INIT?.(),0);
+  }
 
   let handle=doc.getElementById(HANDLE_ID);
   if(!handle){
@@ -550,6 +568,7 @@ function syncInspector(){
   }catch{}
   $('#linkUrl').value=selected.closest('a')?.getAttribute('href')||'';
   syncMobileControls();
+  syncAnimationControls();
 }
 function rgbToHex(rgb){
   const m=String(rgb).match(/\d+/g);
@@ -823,6 +842,285 @@ function applyRecommendedMobileLayout(){
   syncMobileControls();
   updateHandle();
   setStatus('手機推薦設定已套用：文字在上、圖片在下，圖片完整顯示；桌機版完全不變。');
+}
+
+
+/* ---------- site effects: entrance animation + YouTube ---------- */
+function ensureSiteEffects(doc=iframe.contentDocument){
+  if(!doc?.head) return;
+
+  let style=doc.getElementById(SITE_EFFECT_STYLE_ID);
+  if(!style){
+    style=doc.createElement('style');
+    style.id=SITE_EFFECT_STYLE_ID;
+    style.textContent=`
+[data-chinon-entrance].chinon-anim-ready{
+  opacity:0;
+  transition-property:opacity,transform;
+  transition-timing-function:cubic-bezier(.22,.8,.28,1);
+  will-change:opacity,transform;
+}
+[data-chinon-entrance="fade"].chinon-anim-ready{transform:none}
+[data-chinon-entrance="fade-up"].chinon-anim-ready{transform:translateY(28px)}
+[data-chinon-entrance="fade-down"].chinon-anim-ready{transform:translateY(-28px)}
+[data-chinon-entrance="slide-left"].chinon-anim-ready{transform:translateX(-36px)}
+[data-chinon-entrance="slide-right"].chinon-anim-ready{transform:translateX(36px)}
+[data-chinon-entrance="zoom-in"].chinon-anim-ready{transform:scale(.94)}
+[data-chinon-entrance="zoom-out"].chinon-anim-ready{transform:scale(1.06)}
+[data-chinon-entrance].chinon-anim-ready.chinon-in{opacity:1;transform:none}
+[data-chinon-entrance-speed="fast"]{transition-duration:.45s}
+[data-chinon-entrance-speed="normal"],[data-chinon-entrance]:not([data-chinon-entrance-speed]){transition-duration:.7s}
+[data-chinon-entrance-speed="slow"]{transition-duration:1s}
+[data-chinon-entrance-delay="0"]{transition-delay:0s}
+[data-chinon-entrance-delay="0.2"]{transition-delay:.2s}
+[data-chinon-entrance-delay="0.4"]{transition-delay:.4s}
+[data-chinon-entrance-delay="0.6"]{transition-delay:.6s}
+[data-chinon-entrance-delay="1"]{transition-delay:1s}
+
+.${VIDEO_BLOCK_CLASS}{box-sizing:border-box;padding:56px 24px;width:100%}
+.${VIDEO_BLOCK_CLASS} .chinon-video-inner{width:min(1120px,100%);margin:0 auto}
+.${VIDEO_BLOCK_CLASS} .chinon-video-heading{text-align:center;margin:0 auto 24px}
+.${VIDEO_BLOCK_CLASS} .chinon-video-eyebrow{margin:0 0 8px;font-size:12px;letter-spacing:.22em;font-weight:700;color:#58733d}
+.${VIDEO_BLOCK_CLASS} .chinon-video-title{margin:0;font-size:clamp(26px,3vw,42px);line-height:1.3;font-weight:500}
+.${VIDEO_BLOCK_CLASS} .chinon-video-shell{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;border-radius:24px;background:#121212;box-shadow:0 18px 50px rgba(54,45,28,.12)}
+.${VIDEO_BLOCK_CLASS} iframe{display:block;width:100%;height:100%;border:0}
+@media(max-width:680px){
+  .${VIDEO_BLOCK_CLASS}{padding:34px 16px}
+  .${VIDEO_BLOCK_CLASS} .chinon-video-heading{margin-bottom:18px}
+  .${VIDEO_BLOCK_CLASS} .chinon-video-shell{border-radius:16px}
+}
+@media(prefers-reduced-motion:reduce){
+  [data-chinon-entrance].chinon-anim-ready{opacity:1!important;transform:none!important;transition:none!important}
+}`;
+    doc.head.appendChild(style);
+  }
+
+  let script=doc.getElementById(SITE_EFFECT_SCRIPT_ID);
+  if(!script){
+    script=doc.createElement('script');
+    script.id=SITE_EFFECT_SCRIPT_ID;
+    script.textContent=`
+(function(){
+  function initChinonSiteEffects(){
+    var reduced=false;
+    try{ reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+
+    document.querySelectorAll('[data-chinon-entrance]').forEach(function(el){
+      if(el.__chinonEntranceBound) return;
+      el.__chinonEntranceBound=true;
+      el.classList.add('chinon-anim-ready');
+      if(reduced || !('IntersectionObserver' in window)){ el.classList.add('chinon-in'); return; }
+      var repeat=el.getAttribute('data-chinon-entrance-repeat')==='repeat';
+      var io=new IntersectionObserver(function(entries){
+        entries.forEach(function(entry){
+          if(entry.isIntersecting){
+            entry.target.classList.add('chinon-in');
+            if(!repeat) io.unobserve(entry.target);
+          }else if(repeat){
+            entry.target.classList.remove('chinon-in');
+          }
+        });
+      },{threshold:.16,rootMargin:'0px 0px -4% 0px'});
+      io.observe(el);
+    });
+
+    document.querySelectorAll('iframe[data-chinon-youtube-lazy="1"][data-chinon-youtube-src]').forEach(function(frame){
+      if(frame.__chinonYoutubeBound) return;
+      frame.__chinonYoutubeBound=true;
+      var load=function(){
+        var src=frame.getAttribute('data-chinon-youtube-src');
+        if(src && (!frame.getAttribute('src') || frame.getAttribute('src')==='about:blank')) frame.setAttribute('src',src);
+      };
+      if(!('IntersectionObserver' in window)){ load(); return; }
+      var io=new IntersectionObserver(function(entries){
+        entries.forEach(function(entry){
+          if(entry.isIntersecting){ load(); io.unobserve(frame); }
+        });
+      },{rootMargin:'240px 0px',threshold:.01});
+      io.observe(frame);
+    });
+  }
+  window.CHINON_SITE_INIT=initChinonSiteEffects;
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',initChinonSiteEffects,{once:true});
+  else initChinonSiteEffects();
+})();`;
+    doc.body.appendChild(script);
+  }
+  setTimeout(()=>doc.defaultView?.CHINON_SITE_INIT?.(),0);
+}
+
+function syncAnimationControls(){
+  const effect=$('#entranceEffect'), speed=$('#entranceSpeed'), delay=$('#entranceDelay'), repeat=$('#entranceRepeat');
+  if(!effect || !speed || !delay || !repeat) return;
+  const value=selected?.getAttribute?.(ENTRANCE_ATTR)||'';
+  effect.value=value;
+  speed.value=selected?.getAttribute?.(ENTRANCE_SPEED_ATTR)||'normal';
+  delay.value=selected?.getAttribute?.(ENTRANCE_DELAY_ATTR)||'0';
+  repeat.value=selected?.getAttribute?.(ENTRANCE_REPEAT_ATTR)||'once';
+  const disabled=!value;
+  speed.disabled=disabled; delay.disabled=disabled; repeat.disabled=disabled;
+}
+
+function setEntranceEffect(value){
+  if(!selected){ alert('請先選取要加入動畫的文字、圖片或區塊。'); return; }
+  pushUndo();
+  if(!value){
+    selected.removeAttribute(ENTRANCE_ATTR);
+    selected.removeAttribute(ENTRANCE_SPEED_ATTR);
+    selected.removeAttribute(ENTRANCE_DELAY_ATTR);
+    selected.removeAttribute(ENTRANCE_REPEAT_ATTR);
+    selected.classList.remove('chinon-in','chinon-anim-ready');
+    markDirty(); syncAnimationControls(); setStatus('已移除進場動畫。'); return;
+  }
+  ensureSiteEffects();
+  selected.setAttribute(ENTRANCE_ATTR,value);
+  if(!selected.hasAttribute(ENTRANCE_SPEED_ATTR)) selected.setAttribute(ENTRANCE_SPEED_ATTR,'normal');
+  if(!selected.hasAttribute(ENTRANCE_DELAY_ATTR)) selected.setAttribute(ENTRANCE_DELAY_ATTR,'0');
+  if(!selected.hasAttribute(ENTRANCE_REPEAT_ATTR)) selected.setAttribute(ENTRANCE_REPEAT_ATTR,'once');
+  markDirty(); syncAnimationControls(); previewEntranceAnimation();
+  setStatus('進場動畫已套用；發布測試版後也會保留。');
+}
+
+function setEntranceOption(attr,value){
+  if(!selected || !selected.getAttribute(ENTRANCE_ATTR)) return;
+  pushUndo(); selected.setAttribute(attr,value); markDirty(); previewEntranceAnimation();
+}
+
+function previewEntranceAnimation(){
+  if(!selected || !selected.getAttribute(ENTRANCE_ATTR)) return;
+  ensureSiteEffects();
+  selected.classList.add('chinon-anim-ready');
+  selected.classList.remove('chinon-in');
+  void selected.offsetWidth;
+  requestAnimationFrame(()=>selected?.classList.add('chinon-in'));
+}
+
+function clearEntranceAnimation(){
+  if(!selected) return;
+  setEntranceEffect('');
+}
+
+function youtubeIdFromUrl(value){
+  const raw=String(value||'').trim();
+  if(/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  try{
+    const u=new URL(raw);
+    const host=u.hostname.replace(/^www\./,'');
+    if(host==='youtu.be') return u.pathname.split('/').filter(Boolean)[0]||'';
+    if(host.endsWith('youtube.com')){
+      if(u.searchParams.get('v')) return u.searchParams.get('v');
+      const parts=u.pathname.split('/').filter(Boolean);
+      const idx=parts.findIndex(x=>['embed','shorts','live'].includes(x));
+      if(idx>=0 && parts[idx+1]) return parts[idx+1];
+    }
+  }catch{}
+  return '';
+}
+
+function buildYoutubeEmbedUrl(id,opts){
+  const p=new URLSearchParams();
+  p.set('playsinline','1'); p.set('rel','0');
+  p.set('autoplay',opts.autoplay?'1':'0');
+  p.set('mute',(opts.autoplay||opts.mute)?'1':'0');
+  p.set('controls',opts.controls?'1':'0');
+  if(opts.loop){ p.set('loop','1'); p.set('playlist',id); }
+  return `https://www.youtube.com/embed/${encodeURIComponent(id)}?${p.toString()}`;
+}
+
+function resolveVideoAnchor(position){
+  const doc=iframe.contentDocument;
+  const main=doc?.querySelector('main');
+  if(position==='hero-after'){
+    if(currentFile!=='index.html') throw new Error('「首頁主視覺下方」只能在首頁使用。請改選目前區塊上方或下方。');
+    const hero=main?.querySelector(':scope > .hero, :scope > .home-hero, :scope > section:first-child')
+      || doc.querySelector('.hero,.home-hero') || main?.firstElementChild;
+    if(!hero) throw new Error('找不到首頁主視覺區塊。');
+    return {anchor:hero,where:'after'};
+  }
+  return {anchor:resolveFlowAnchor(),where:position==='above'?'before':'after'};
+}
+
+function createVideoBlock(doc,settings){
+  const section=doc.createElement('section');
+  section.className=VIDEO_BLOCK_CLASS;
+  section.setAttribute(ADDED_ATTR,'1');
+  const inner=doc.createElement('div');
+  inner.className='chinon-video-inner';
+
+  if(settings.showTitle){
+    const heading=doc.createElement('div');
+    heading.className='chinon-video-heading';
+    const eyebrow=doc.createElement('p');
+    eyebrow.className='chinon-video-eyebrow';
+    eyebrow.textContent=settings.eyebrow||'CHINON STORY';
+    const title=doc.createElement('h2');
+    title.className='chinon-video-title';
+    title.textContent=settings.title||'從一片桑葉，到一杯好茶。';
+    heading.append(eyebrow,title);
+    inner.appendChild(heading);
+  }
+
+  const shell=doc.createElement('div');
+  shell.className='chinon-video-shell';
+  const frame=doc.createElement('iframe');
+  frame.setAttribute(ADDED_ATTR,'1');
+  frame.title=settings.title||'CHINON 品牌影片';
+  frame.allow='accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+  frame.setAttribute('allowfullscreen','');
+  frame.setAttribute('referrerpolicy','strict-origin-when-cross-origin');
+  frame.loading='lazy';
+
+  if(settings.viewportPlay){
+    frame.setAttribute('data-chinon-youtube-lazy','1');
+    frame.setAttribute('data-chinon-youtube-src',settings.src);
+    frame.src='about:blank';
+  }else frame.src=settings.src;
+
+  shell.appendChild(frame);
+  inner.appendChild(shell);
+  section.appendChild(inner);
+  return section;
+}
+
+function openVideoDialog(){
+  $('#videoPosition').value=currentFile==='index.html'?'hero-after':'below';
+  $('#videoDialog').showModal();
+}
+
+async function insertVideoBlock(){
+  try{
+    const id=youtubeIdFromUrl($('#videoUrl').value.trim());
+    if(!id) throw new Error('無法辨識這個 YouTube 網址，請確認連結後再試。');
+    const autoplay=$('#videoAutoplay').checked;
+    const settings={
+      autoplay,
+      mute:$('#videoMute').checked || autoplay,
+      loop:$('#videoLoop').checked,
+      controls:$('#videoControls').checked,
+      viewportPlay:$('#videoViewportPlay').checked,
+      showTitle:$('#videoShowTitle').checked,
+      eyebrow:$('#videoEyebrow').value.trim(),
+      title:$('#videoTitle').value.trim()
+    };
+    settings.src=buildYoutubeEmbedUrl(id,settings);
+    const {anchor,where}=resolveVideoAnchor($('#videoPosition').value);
+    if(!anchor?.parentElement) throw new Error('找不到影片可插入的位置。');
+
+    pushUndo();
+    const doc=iframe.contentDocument;
+    ensureSiteEffects(doc);
+    const block=createVideoBlock(doc,settings);
+    if(where==='before') anchor.insertAdjacentElement('beforebegin',block);
+    else anchor.insertAdjacentElement('afterend',block);
+
+    markDirty(); selectElement(block); doc.defaultView?.CHINON_SITE_INIT?.();
+    block.scrollIntoView({behavior:'smooth',block:'center'});
+    $('#videoDialog').close();
+    setStatus('YouTube 影片區塊已插入並自動儲存草稿。');
+  }catch(err){
+    console.error(err);
+    alert(`插入影片失敗：${err.message}`);
+  }
 }
 
 /* ---------- resize ---------- */
@@ -1251,7 +1549,9 @@ function deleteAdded(){
   const id=selected.getAttribute(FLOAT_ATTR);
   if(id) iframe.contentDocument.querySelector(`[${PLACEHOLDER_ATTR}="${CSS.escape(id)}"]`)?.remove();
   const flowBlock=selected.closest?.(`.${FLOW_IMAGE_BLOCK_CLASS}`);
-  if(flowBlock && isImage) flowBlock.remove();
+  const videoBlock=selected.closest?.(`.${VIDEO_BLOCK_CLASS}`);
+  if(videoBlock) videoBlock.remove();
+  else if(flowBlock && isImage) flowBlock.remove();
   else selected.remove();
   selected=null;
   $('#selectedLabel').textContent='尚未選取'; markDirty();
@@ -1331,6 +1631,11 @@ function stripEditorArtifacts(doc){
     el.removeAttribute('data-chinon-v10-drag-x');
     el.removeAttribute('data-chinon-v10-drag-y');
     el.removeAttribute('contenteditable');
+    el.classList.remove('chinon-in','chinon-anim-ready');
+    if(!el.getAttribute('class')) el.removeAttribute('class');
+    if(el.tagName==='IFRAME' && el.getAttribute('data-chinon-youtube-lazy')==='1' && el.getAttribute('data-chinon-youtube-src')){
+      el.setAttribute('src','about:blank');
+    }
     if(el.getAttribute('draggable')==='false' && el.tagName==='IMG') el.removeAttribute('draggable');
   });
 }
@@ -1966,6 +2271,11 @@ $('#draftHistoryList').addEventListener('click',async e=>{
 $('#btnUndo').addEventListener('click',undo);
 $('#btnRedo').addEventListener('click',redo);
 
+$('#btnAddVideo').addEventListener('click',openVideoDialog);
+$('#btnCloseVideoDialog').addEventListener('click',()=>$('#videoDialog').close());
+$('#btnCancelVideo').addEventListener('click',()=>$('#videoDialog').close());
+$('#btnInsertVideo').addEventListener('click',insertVideoBlock);
+
 $('#btnAddImage').addEventListener('click',()=>$('#addImageInput').click());
 $('#addImageInput').addEventListener('change',async e=>{ await addImage(e.target.files?.[0]); e.target.value=''; });
 $('#btnFlowImageAbove').addEventListener('click',()=>requestFlowImage('above'));
@@ -1995,6 +2305,12 @@ $('#btnApplyLink').addEventListener('click',applyLink);
 $('#mobileOrder').addEventListener('change',e=>setMobileOrder(e.target.value));
 $('#mobileImageFit').addEventListener('change',e=>setMobileImageFit(e.target.value));
 $('#btnMobileRecommended').addEventListener('click',applyRecommendedMobileLayout);
+$('#entranceEffect').addEventListener('change',e=>setEntranceEffect(e.target.value));
+$('#entranceSpeed').addEventListener('change',e=>setEntranceOption(ENTRANCE_SPEED_ATTR,e.target.value));
+$('#entranceDelay').addEventListener('change',e=>setEntranceOption(ENTRANCE_DELAY_ATTR,e.target.value));
+$('#entranceRepeat').addEventListener('change',e=>setEntranceOption(ENTRANCE_REPEAT_ATTR,e.target.value));
+$('#btnPreviewAnimation').addEventListener('click',previewEntranceAnimation);
+$('#btnClearAnimation').addEventListener('click',clearEntranceAnimation);
 
 [
  ['fontFamily','fontFamily'],['fontSize','fontSize'],['fontWeight','fontWeight'],
@@ -2006,6 +2322,9 @@ $('#btnMobileRecommended').addEventListener('click',applyRecommendedMobileLayout
 ].forEach(([id,prop])=>bindSelect(id,prop));
 $('#textColor').addEventListener('change',e=>applyStyle('color',e.target.value));
 $('#backgroundColor').addEventListener('change',e=>applyStyle('backgroundColor',e.target.value));
+$('#videoAutoplay').addEventListener('change',e=>{
+  if(e.target.checked) $('#videoMute').checked=true;
+});
 
 document.querySelectorAll('.devices button').forEach(btn=>btn.addEventListener('click',()=>{
   document.querySelectorAll('.devices button').forEach(b=>b.classList.remove('active'));
@@ -2064,7 +2383,7 @@ window.addEventListener('pagehide',()=>{
       $('#btnPromote').disabled=true;
     }
     await loadPage('index.html');
-    setStatus(`${BUILD} 已完成啟動。換圖片可自動辨識卡片內主圖或背景圖。`);
+    setStatus(`${BUILD} 已完成啟動。已加入進場動畫、YouTube 影片區塊與收合式手機進階設定。`);
   }catch(err){
     console.error(err); setStatus(`啟動失敗：${err.message}`);
   }

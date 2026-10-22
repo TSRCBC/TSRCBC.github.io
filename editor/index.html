@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>CHINON 視覺網站編輯器</title>
-  <link rel="stylesheet" href="editor.css?v=1102">
+  <link rel="stylesheet" href="editor.css?v=1110">
 </head>
 <body class="auth-locked">
   <div id="loginGate" class="login-gate">
@@ -51,6 +51,7 @@
       <button id="btnAddImage">＋一般圖片</button>
       <button id="btnFlowImageAbove" class="accent" title="選一個標題或區塊，將圖片插入整個區塊上方">＋圖片區塊 ↑</button>
       <button id="btnFlowImageBelow" class="accent" title="選一個標題或區塊，將圖片插入整個區塊下方">＋圖片區塊 ↓</button>
+      <button id="btnAddVideo" class="accent" title="插入 YouTube 宣傳影片區塊">＋影片區塊</button>
       <button id="btnReplaceImage" title="點圖片或整張卡片都可以；會自動找主圖">換圖片（自動找主圖）</button>
       <button id="btnFindWixImage" title="跳到本頁下一張仍使用 Wix 網址的圖片">找WIX圖片</button>
       <button id="btnBackground">背景圖</button>
@@ -86,7 +87,7 @@
 
   <div class="statusbar">
     <span id="status">編輯器啟動中…</span>
-    <span class="build-badge">V10.10.1</span>
+    <span class="build-badge">V10.11</span>
       <span class="status-note">修改會自動暫存；「儲存草稿」會建立可恢復版本。重新載入官網不再刪除備份。</span>
   </div>
 
@@ -102,37 +103,6 @@
         <strong>選取物件</strong>
         <span id="selectedLabel">尚未選取</span>
       </div>
-      <div class="mobile-feature-version">V10.10.2｜手機版排版</div>
-
-
-
-      <section id="mobileLayoutSection">
-        <h3>手機版排版</h3>
-        <p class="inspector-help">只影響手機寬度（680px 以下），桌機版不會改變。</p>
-
-        <label>圖文上下順序
-          <select id="mobileOrder">
-            <option value="">跟隨原本</option>
-            <option value="text-first">文字在上・圖片在下</option>
-            <option value="image-first">圖片在上・文字在下</option>
-          </select>
-        </label>
-
-        <label>手機圖片顯示
-          <select id="mobileImageFit">
-            <option value="">跟隨原本</option>
-            <option value="contain">完整顯示・不裁切</option>
-            <option value="cover">填滿裁切</option>
-          </select>
-        </label>
-
-        <button id="btnMobileRecommended" type="button" class="full accent">
-          推薦：文字在上＋圖片完整顯示
-        </button>
-        <p id="mobileLayoutHint" class="inspector-help small">先點選左右圖文區塊中的文字或圖片。</p>
-      </section>
-
-
       <section>
         <h3>文字</h3>
         <label>字型
@@ -276,6 +246,83 @@
         <label>網址 <input id="linkUrl" type="text" placeholder="https://... 或 about.html"></label>
         <button id="btnApplyLink" class="full">套用連結</button>
       </section>
+
+      <details class="inspector-fold" id="animationFold">
+        <summary>進場動畫</summary>
+        <div class="fold-body">
+          <p class="inspector-help">元素滑進畫面時播放。適合標題、圖片、按鈕與整個內容區塊。</p>
+          <label>動畫效果
+            <select id="entranceEffect">
+              <option value="">無動畫</option>
+              <option value="fade">淡入</option>
+              <option value="fade-up">往上淡入</option>
+              <option value="fade-down">往下淡入</option>
+              <option value="slide-left">從左滑入</option>
+              <option value="slide-right">從右滑入</option>
+              <option value="zoom-in">放大淡入</option>
+              <option value="zoom-out">縮小淡入</option>
+            </select>
+          </label>
+          <label>速度
+            <select id="entranceSpeed">
+              <option value="fast">快</option>
+              <option value="normal" selected>正常</option>
+              <option value="slow">慢</option>
+            </select>
+          </label>
+          <label>延遲
+            <select id="entranceDelay">
+              <option value="0">0 秒</option>
+              <option value="0.2">0.2 秒</option>
+              <option value="0.4">0.4 秒</option>
+              <option value="0.6">0.6 秒</option>
+              <option value="1">1 秒</option>
+            </select>
+          </label>
+          <label>觸發方式
+            <select id="entranceRepeat">
+              <option value="once">第一次進入畫面播放</option>
+              <option value="repeat">每次滑入都播放</option>
+            </select>
+          </label>
+          <div class="fold-buttons">
+            <button id="btnPreviewAnimation" type="button">預覽動畫</button>
+            <button id="btnClearAnimation" type="button">移除動畫</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="inspector-fold" id="advancedResponsiveFold">
+        <summary>進階／響應式設定</summary>
+        <div class="fold-body">
+          <section id="mobileLayoutSection">
+        <h4>手機版排版</h4>
+        <p class="inspector-help">只影響手機寬度（680px 以下），桌機版不會改變。</p>
+
+        <label>圖文上下順序
+          <select id="mobileOrder">
+            <option value="">跟隨原本</option>
+            <option value="text-first">文字在上・圖片在下</option>
+            <option value="image-first">圖片在上・文字在下</option>
+          </select>
+        </label>
+
+        <label>手機圖片顯示
+          <select id="mobileImageFit">
+            <option value="">跟隨原本</option>
+            <option value="contain">完整顯示・不裁切</option>
+            <option value="cover">填滿裁切</option>
+          </select>
+        </label>
+
+        <button id="btnMobileRecommended" type="button" class="full accent">
+          推薦：文字在上＋圖片完整顯示
+        </button>
+        <p id="mobileLayoutHint" class="inspector-help small">先點選左右圖文區塊中的文字或圖片。</p>
+      </section>
+        </div>
+      </details>
+
     </aside>
   </main>
 
@@ -284,6 +331,41 @@
   <input id="replaceImageInput" type="file" accept="image/*" hidden>
   <input id="backgroundInput" type="file" accept="image/*" hidden>
 
+
+
+  <dialog id="videoDialog">
+    <div class="dialog-card video-dialog-card">
+      <div class="dialog-head">
+        <strong>YouTube 影片區塊</strong>
+        <button id="btnCloseVideoDialog" type="button">✕</button>
+      </div>
+      <div class="video-form">
+        <label>YouTube 網址
+          <input id="videoUrl" type="text" value="https://youtu.be/QNTl3Amq6W0?si=r0M2rk2oXPRx06I_" placeholder="貼上 YouTube 網址">
+        </label>
+        <label>插入位置
+          <select id="videoPosition">
+            <option value="hero-after">首頁主視覺下方（推薦）</option>
+            <option value="above">目前選取區塊上方</option>
+            <option value="below">目前選取區塊下方</option>
+          </select>
+        </label>
+        <label>小標<input id="videoEyebrow" type="text" value="CHINON STORY"></label>
+        <label>標題<input id="videoTitle" type="text" value="從一片桑葉，到一杯好茶。"></label>
+        <label class="check"><input id="videoShowTitle" type="checkbox" checked> 顯示上方標題</label>
+        <label class="check"><input id="videoAutoplay" type="checkbox" checked> 自動播放</label>
+        <label class="check"><input id="videoMute" type="checkbox" checked> 預設靜音</label>
+        <label class="check"><input id="videoLoop" type="checkbox" checked> 循環播放</label>
+        <label class="check"><input id="videoControls" type="checkbox" checked> 顯示 YouTube 控制列</label>
+        <label class="check"><input id="videoViewportPlay" type="checkbox" checked> 滑到影片附近才載入／播放</label>
+        <p class="video-note">YouTube 自動播放通常需要靜音；若勾選自動播放，系統會自動套用靜音以提高成功率。</p>
+      </div>
+      <div class="dialog-actions">
+        <button id="btnCancelVideo" type="button">取消</button>
+        <button id="btnInsertVideo" type="button" class="primary">插入影片</button>
+      </div>
+    </div>
+  </dialog>
 
   <dialog id="draftHistoryDialog">
     <div class="dialog-card">
@@ -332,6 +414,6 @@
     </form>
   </dialog>
 
-  <script src="editor.js?v=1102"></script>
+  <script src="editor.js?v=1110"></script>
 </body>
 </html>
