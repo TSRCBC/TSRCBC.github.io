@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const BUILD = 'V10.9 SAFE SYNC';
+const BUILD = 'V10.10.1 MOBILE TOP';
 const FONT_URL = 'https://fonts.googleapis.com/css2?family=Iansui&family=Klee+One:wght@400;600&family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&family=Noto+Serif+TC:wght@400;500;600;700;800;900&family=Yuji+Syuku&family=Zen+Kurenaido&display=swap';
 
 /* ---------- login ---------- */
@@ -109,6 +109,11 @@ let latestPreviewId = '';
 
 const EDITOR_STYLE_ID = 'chinon-v10-editor-style';
 const HANDLE_ID = 'chinon-v10-resize-handle';
+const RESPONSIVE_STYLE_ID = 'chinon-responsive-overrides';
+const MOBILE_ORDER_ATTR = 'data-chinon-mobile-order';
+const MOBILE_ROLE_ATTR = 'data-chinon-mobile-role';
+const MOBILE_FIT_ATTR = 'data-chinon-mobile-fit';
+const MOBILE_FIT_WRAP_ATTR = 'data-chinon-mobile-fit-wrap';
 const FLOW_IMAGE_BLOCK_CLASS = 'chinon-flow-image-block';
 const SELECT_ATTR = 'data-chinon-v10-selected';
 const ADDED_ATTR = 'data-chinon-v10-added';
@@ -447,6 +452,7 @@ function injectEditorUi(doc){
     img[${FLOAT_ATTR}]{-webkit-user-drag:none!important}
   `;
   doc.head.appendChild(style);
+  if(doc.getElementById(RESPONSIVE_STYLE_ID)) ensureResponsiveStyle(doc);
 
   let handle=doc.getElementById(HANDLE_ID);
   if(!handle){
@@ -542,6 +548,7 @@ function syncInspector(){
     $('#backgroundColor').value=cs.backgroundColor==='rgba(0, 0, 0, 0)'?'#ffffff':rgbToHex(cs.backgroundColor);
   }catch{}
   $('#linkUrl').value=selected.closest('a')?.getAttribute('href')||'';
+  syncMobileControls();
 }
 function rgbToHex(rgb){
   const m=String(rgb).match(/\d+/g);
@@ -568,6 +575,254 @@ function applyStyle(prop,value){
   updateHandle();
 }
 function bindSelect(id,prop){ $('#'+id).addEventListener('change',e=>applyStyle(prop,e.target.value)); }
+
+
+/* ---------- responsive mobile layout ---------- */
+function ensureResponsiveStyle(doc=iframe.contentDocument){
+  if(!doc?.head) return null;
+  let style=doc.getElementById(RESPONSIVE_STYLE_ID);
+  if(!style){
+    style=doc.createElement('style');
+    style.id=RESPONSIVE_STYLE_ID;
+    style.textContent=`
+@media (max-width:680px){
+  [${MOBILE_ORDER_ATTR}="text-first"] > [${MOBILE_ROLE_ATTR}="text"]{
+    order:1!important;
+    grid-column:auto!important;
+    grid-row:auto!important;
+  }
+  [${MOBILE_ORDER_ATTR}="text-first"] > [${MOBILE_ROLE_ATTR}="image"]{
+    order:2!important;
+    grid-column:auto!important;
+    grid-row:auto!important;
+  }
+  [${MOBILE_ORDER_ATTR}="image-first"] > [${MOBILE_ROLE_ATTR}="image"]{
+    order:1!important;
+    grid-column:auto!important;
+    grid-row:auto!important;
+  }
+  [${MOBILE_ORDER_ATTR}="image-first"] > [${MOBILE_ROLE_ATTR}="text"]{
+    order:2!important;
+    grid-column:auto!important;
+    grid-row:auto!important;
+  }
+
+  img[${MOBILE_FIT_ATTR}="contain"]{
+    display:block!important;
+    width:100%!important;
+    max-width:100%!important;
+    height:auto!important;
+    min-height:0!important;
+    aspect-ratio:auto!important;
+    object-fit:contain!important;
+    object-position:center center!important;
+  }
+  [${MOBILE_FIT_WRAP_ATTR}="contain"]{
+    height:auto!important;
+    min-height:0!important;
+    max-height:none!important;
+    overflow:visible!important;
+  }
+
+  img[${MOBILE_FIT_ATTR}="cover"]{
+    display:block!important;
+    width:100%!important;
+    max-width:100%!important;
+    object-fit:cover!important;
+  }
+}`;
+    doc.head.appendChild(style);
+  }
+  return style;
+}
+
+function directChildUnder(container,node){
+  let cur=node;
+  while(cur && cur.parentElement && cur.parentElement!==container){
+    cur=cur.parentElement;
+  }
+  return cur?.parentElement===container ? cur : null;
+}
+
+function childImageElement(child){
+  if(!child) return null;
+  if(child.tagName==='IMG') return child;
+  return child.querySelector?.('img') || null;
+}
+
+function looksLikeImageColumn(child){
+  if(!child) return false;
+  if(child.tagName==='IMG') return true;
+  if(child.classList?.contains('craft-image') || child.classList?.contains('split-story-image')) return true;
+  const imgs=child.querySelectorAll?.('img') || [];
+  if(imgs.length===1){
+    const text=(child.textContent||'').trim();
+    return text.length < 40;
+  }
+  return false;
+}
+
+function detectResponsivePair(container){
+  if(!container) return null;
+  const children=[...container.children].filter(ch=>ch.id!==HANDLE_ID);
+  if(children.length<2) return null;
+
+  let imageChild=children.find(looksLikeImageColumn) || null;
+  if(!imageChild) return null;
+
+  let textChild=children.find(ch=>ch!==imageChild && !looksLikeImageColumn(ch)) || null;
+  if(!textChild) textChild=children.find(ch=>ch!==imageChild) || null;
+  if(!textChild) return null;
+
+  const imageEl=childImageElement(imageChild);
+  if(!imageEl) return null;
+
+  return {container,imageChild,textChild,imageEl};
+}
+
+function findResponsivePair(el=selected){
+  if(!el) return null;
+
+  const known=el.closest?.(
+    '.editorial-grid,.craft-row,.split-story,.two-column-copy,.product-duo,.info-panel-grid,.contact-grid'
+  );
+  if(known){
+    const pair=detectResponsivePair(known);
+    if(pair) return pair;
+  }
+
+  // Fallback: walk up a few levels and find a two-column-like parent
+  let p=el.parentElement;
+  let depth=0;
+  while(p && depth<5 && p!==iframe.contentDocument?.body){
+    const pair=detectResponsivePair(p);
+    if(pair) return pair;
+    p=p.parentElement;
+    depth++;
+  }
+  return null;
+}
+
+function tagResponsivePair(pair){
+  if(!pair) return;
+  pair.imageChild.setAttribute(MOBILE_ROLE_ATTR,'image');
+  pair.textChild.setAttribute(MOBILE_ROLE_ATTR,'text');
+}
+
+function currentResponsiveImage(){
+  if(!selected) return null;
+  if(selected.tagName==='IMG') return selected;
+  const pair=findResponsivePair(selected);
+  if(pair?.imageEl) return pair.imageEl;
+  return selected.querySelector?.('img') || null;
+}
+
+function syncMobileControls(){
+  const orderCtl=$('#mobileOrder');
+  const fitCtl=$('#mobileImageFit');
+  const hint=$('#mobileLayoutHint');
+  if(!orderCtl || !fitCtl) return;
+
+  const pair=findResponsivePair(selected);
+  const img=currentResponsiveImage();
+
+  orderCtl.value=pair?.container?.getAttribute(MOBILE_ORDER_ATTR)||'';
+  fitCtl.value=img?.getAttribute(MOBILE_FIT_ATTR)||'';
+
+  orderCtl.disabled=!pair;
+  fitCtl.disabled=!img;
+
+  if(pair && img){
+    hint.textContent='已找到圖文區塊：可獨立設定手機順序與圖片顯示。';
+  }else if(img){
+    hint.textContent='已選到圖片：可以設定手機圖片顯示；此物件不是左右圖文區塊。';
+  }else{
+    hint.textContent='先點選左右圖文區塊中的文字或圖片。';
+  }
+}
+
+function setMobileOrder(value,{skipUndo=false,skipDirty=false}={}){
+  const pair=findResponsivePair(selected);
+  if(!pair){
+    alert('目前選取的物件不是可辨識的左右圖文區塊。請點標題、說明文字或該區圖片後再試。');
+    syncMobileControls();
+    return false;
+  }
+  if(!skipUndo) pushUndo();
+  tagResponsivePair(pair);
+  ensureResponsiveStyle();
+
+  if(value){
+    pair.container.setAttribute(MOBILE_ORDER_ATTR,value);
+  }else{
+    pair.container.removeAttribute(MOBILE_ORDER_ATTR);
+  }
+
+  if(!skipDirty) markDirty();
+  syncMobileControls();
+  updateHandle();
+
+  if(value==='text-first') setStatus('手機版已設定：文字在上、圖片在下。桌機版不變。');
+  else if(value==='image-first') setStatus('手機版已設定：圖片在上、文字在下。桌機版不變。');
+  else setStatus('手機版圖文順序已恢復為跟隨原本排版。');
+  return true;
+}
+
+function setMobileImageFit(value,{skipUndo=false,skipDirty=false}={}){
+  const img=currentResponsiveImage();
+  if(!img){
+    alert('請先點選圖片，或點選包含圖片的左右圖文區塊。');
+    syncMobileControls();
+    return false;
+  }
+  if(!skipUndo) pushUndo();
+  ensureResponsiveStyle();
+
+  if(value){
+    img.setAttribute(MOBILE_FIT_ATTR,value);
+  }else{
+    img.removeAttribute(MOBILE_FIT_ATTR);
+  }
+
+  // craft-image 這類固定高度容器，在手機完整顯示時也必須解除高度限制
+  const pair=findResponsivePair(selected);
+  const wrap=(pair?.imageEl===img && pair.imageChild!==img) ? pair.imageChild : img.parentElement;
+  if(wrap && wrap!==iframe.contentDocument?.body){
+    if(value==='contain') wrap.setAttribute(MOBILE_FIT_WRAP_ATTR,'contain');
+    else wrap.removeAttribute(MOBILE_FIT_WRAP_ATTR);
+  }
+
+  if(!skipDirty) markDirty();
+  syncMobileControls();
+  updateHandle();
+
+  if(value==='contain') setStatus('手機版圖片已設定為完整顯示，不裁切；桌機版不變。');
+  else if(value==='cover') setStatus('手機版圖片已設定為填滿裁切；桌機版不變。');
+  else setStatus('手機版圖片顯示已恢復為跟隨原本設定。');
+  return true;
+}
+
+function applyRecommendedMobileLayout(){
+  const pair=findResponsivePair(selected);
+  if(!pair){
+    alert('請先點選這一組左右圖文中的標題、說明文字或圖片。');
+    return;
+  }
+  pushUndo();
+  tagResponsivePair(pair);
+  ensureResponsiveStyle();
+
+  pair.container.setAttribute(MOBILE_ORDER_ATTR,'text-first');
+  pair.imageEl.setAttribute(MOBILE_FIT_ATTR,'contain');
+  if(pair.imageChild!==pair.imageEl){
+    pair.imageChild.setAttribute(MOBILE_FIT_WRAP_ATTR,'contain');
+  }
+
+  markDirty();
+  syncMobileControls();
+  updateHandle();
+  setStatus('手機推薦設定已套用：文字在上、圖片在下，圖片完整顯示；桌機版完全不變。');
+}
 
 /* ---------- resize ---------- */
 function startResize(e){
@@ -1615,6 +1870,9 @@ $('#btnImgLeft').addEventListener('click',()=>alignImage('left'));
 $('#btnImgCenter').addEventListener('click',()=>alignImage('center'));
 $('#btnImgRight').addEventListener('click',()=>alignImage('right'));
 $('#btnApplyLink').addEventListener('click',applyLink);
+$('#mobileOrder').addEventListener('change',e=>setMobileOrder(e.target.value));
+$('#mobileImageFit').addEventListener('change',e=>setMobileImageFit(e.target.value));
+$('#btnMobileRecommended').addEventListener('click',applyRecommendedMobileLayout);
 
 [
  ['fontFamily','fontFamily'],['fontSize','fontSize'],['fontWeight','fontWeight'],
@@ -1632,6 +1890,9 @@ document.querySelectorAll('.devices button').forEach(btn=>btn.addEventListener('
   btn.classList.add('active');
   const w=+btn.dataset.width;
   frameBox.style.width=`min(${w}px,100%)`;
+  const name=w<=390?'手機':w<=820?'平板':'桌機';
+  setStatus(`已切換到${name}預覽。手機版獨立排列設定只會影響 680px 以下畫面。`);
+  setTimeout(updateHandle,50);
 }));
 
 $('#btnPreviewPublish').addEventListener('click',()=>openPublish('preview'));
@@ -1681,7 +1942,7 @@ window.addEventListener('pagehide',()=>{
       $('#btnPromote').disabled=true;
     }
     await loadPage('index.html');
-    setStatus(`${BUILD} 已完成啟動。GitHub 版本變更時可保留草稿並安全同步基準。`);
+    setStatus(`${BUILD} 已完成啟動。新增手機版獨立圖文排序與圖片完整顯示。`);
   }catch(err){
     console.error(err); setStatus(`啟動失敗：${err.message}`);
   }

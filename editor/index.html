@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>CHINON 視覺網站編輯器</title>
-  <link rel="stylesheet" href="editor.css?v=1090">
+  <link rel="stylesheet" href="editor.css?v=1101">
 </head>
 <body class="auth-locked">
   <div id="loginGate" class="login-gate">
@@ -86,7 +86,8 @@
 
   <div class="statusbar">
     <span id="status">編輯器啟動中…</span>
-    <span class="status-note">修改會自動暫存；「儲存草稿」會建立可恢復版本。重新載入官網不再刪除備份。</span>
+    <span class="build-badge">V10.10.1</span>
+      <span class="status-note">修改會自動暫存；「儲存草稿」會建立可恢復版本。重新載入官網不再刪除備份。</span>
   </div>
 
   <main class="workspace">
@@ -101,6 +102,36 @@
         <strong>選取物件</strong>
         <span id="selectedLabel">尚未選取</span>
       </div>
+      <div class="mobile-feature-version">V10.10.1｜手機版排版</div>
+
+
+
+      <section id="mobileLayoutSection">
+        <h3>手機版排版</h3>
+        <p class="inspector-help">只影響手機寬度（680px 以下），桌機版不會改變。</p>
+
+        <label>圖文上下順序
+          <select id="mobileOrder">
+            <option value="">跟隨原本</option>
+            <option value="text-first">文字在上・圖片在下</option>
+            <option value="image-first">圖片在上・文字在下</option>
+          </select>
+        </label>
+
+        <label>手機圖片顯示
+          <select id="mobileImageFit">
+            <option value="">跟隨原本</option>
+            <option value="contain">完整顯示・不裁切</option>
+            <option value="cover">填滿裁切</option>
+          </select>
+        </label>
+
+        <button id="btnMobileRecommended" type="button" class="full accent">
+          推薦：文字在上＋圖片完整顯示
+        </button>
+        <p id="mobileLayoutHint" class="inspector-help small">先點選左右圖文區塊中的文字或圖片。</p>
+      </section>
+
 
       <section>
         <h3>文字</h3>
@@ -240,7 +271,6 @@
           <select id="boxShadow"><option value="">不變更</option><option value="none">無</option><option value="0 4px 14px rgba(0,0,0,.12)">柔和</option><option value="0 12px 32px rgba(0,0,0,.2)">明顯</option></select>
         </label>
       </section>
-
       <section>
         <h3>連結</h3>
         <label>網址 <input id="linkUrl" type="text" placeholder="https://... 或 about.html"></label>
@@ -302,6 +332,6 @@
     </form>
   </dialog>
 
-  <script src="editor.js?v=1090"></script>
+  <script src="editor.js?v=1101"></script>
 </body>
 </html>
