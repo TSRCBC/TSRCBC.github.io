@@ -1,334 +1,203 @@
 <!doctype html>
-<html lang="zh-Hant">
-<head>
+<html lang="zh-Hant"><head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="robots" content="noindex,nofollow,noarchive">
-  <title>CHINON 視覺網站編輯器</title>
-  <link rel="stylesheet" href="editor.css?v=1100">
-</head>
-<body class="auth-locked">
-  <div id="loginGate" class="login-gate">
-    <div class="login-orb orb-a"></div>
-    <div class="login-orb orb-b"></div>
-    <section class="login-card">
-      <div class="login-logo">C</div>
-      <div class="login-eyebrow">CHINON PRIVATE CONSOLE</div>
-      <h1>網站管理後台</h1>
-      <p>驗證管理者後進入視覺編輯器</p>
-      <form id="loginForm" autocomplete="off" novalidate>
-        <label>帳號<input id="loginUser" type="text" value="luke" autocomplete="off" autocapitalize="none" spellcheck="false" inputmode="text" placeholder="管理帳號"><span class="login-hint">管理帳號已預填為 luke，可直接輸入密碼。</span></label>
-        <label>密碼
-          <div class="password-wrap">
-            <input id="loginPass" type="password" autocomplete="new-password" autocapitalize="none" spellcheck="false" placeholder="管理密碼">
-            <button id="togglePassword" type="button">顯示</button>
-          </div>
-        </label>
-        <div id="loginError" class="login-error"></div>
-        <button class="login-submit" type="submit"><span>進入管理後台</span><span>→</span></button>
-      </form>
-    </section>
+  <meta name="robots" content="index,follow">
+  <meta name="description" content="CHINON 奇農｜黃金 GABA 桑茶">
+  <title>首頁｜奇農 CHINON</title>
+  <link rel="icon" type="image/png" href="/assets/chinon-logo.png">
+  <link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Iansui&amp;family=Klee+One:wght@400;600&amp;family=LXGW+WenKai+TC:wght@400;700&amp;family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&amp;family=Noto+Serif+TC:wght@400;500;600;700;800;900&amp;family=Yuji+Syuku&amp;family=Zen+Kurenaido&amp;display=swap" data-chinon-fonts="1"><meta name="chinon-preview-id" content="mviwdugx"></head>
+<body>
+
+<header class="site-header">
+  <div class="container nav-wrap">
+    <a class="brand" href="/preview/index.html" aria-label="奇農 CHINON 首頁">
+      <img src="/assets/chinon-logo.png" alt="奇農 CHINON Logo">
+      <span><strong style="font-family: &quot;Klee One&quot;, cursive;">奇農</strong><small>CHINON</small></span>
+    </a>
+
+    <nav class="nav-links">
+      <a class="active" href="/preview/index.html">首頁</a>
+<a class="" href="/preview/about.html">關於奇農</a>
+<a class="" href="/preview/craft.html">製茶堅持</a>
+<a class="" href="/preview/gaba.html">GABA桑茶</a>
+<a class="" href="/preview/maca.html">秘魯瑪卡</a>
+<a class="" href="/preview/certificates.html">檢測證書</a>
+<a class="" href="/preview/info.html">相關資訊</a>
+<a class="" href="/preview/contact.html">聯繫我們</a>
+<a class="nav-buy" href="https://tsrcbc.cashier.ecpay.com.tw/" target="_blank" rel="noopener">產品購買 ↗</a>
+    </nav>
+
+    <button class="menu-toggle" type="button" aria-label="開啟選單" aria-expanded="false">☰</button>
   </div>
-
-  <header class="topbar">
-    <div class="brand">
-      <strong>CHINON 編輯器 <span id="buildLabel">載入中…</span></strong>
-      <span>同源畫布・先測試版・確認後再套正式站</span>
-    </div>
-
-    <div class="toolbar">
-      <select id="pageSelect" title="頁面">
-        <option value="index.html">首頁</option>
-        <option value="about.html">關於奇農</option>
-        <option value="craft.html">製茶堅持</option>
-        <option value="gaba.html">GABA桑茶</option>
-        <option value="maca.html">秘魯瑪卡</option>
-        <option value="certificates.html">檢測證書</option>
-        <option value="info.html">相關資訊</option>
-        <option value="contact.html">聯繫我們</option>
-      </select>
-
-      <button id="btnAddImage">＋一般圖片</button>
-      <button id="btnFlowImageAbove" class="accent" title="選一個標題或區塊，將圖片插入整個區塊上方">＋圖片區塊 ↑</button>
-      <button id="btnFlowImageBelow" class="accent" title="選一個標題或區塊，將圖片插入整個區塊下方">＋圖片區塊 ↓</button>
-      <button id="btnReplaceImage">換圖片</button>
-      <button id="btnFindWixImage" title="跳到本頁下一張仍使用 Wix 網址的圖片">找WIX圖片</button>
-      <button id="btnBackground">背景圖</button>
-      <button id="btnFloat">✥ 自由擺放</button>
-      <button id="btnUnfloat">回到排版</button>
-      <button id="btnDeleteAdded">刪除圖片／新增物件</button>
-
-      <button id="btnImgLeft">圖片靠左</button>
-      <button id="btnImgCenter" class="accent">圖片置中</button>
-      <button id="btnImgRight">圖片靠右</button>
-
-      <button id="btnUndo">↶ Undo</button>
-      <button id="btnRedo">↷ Redo</button>
-      <button id="btnSave">儲存草稿</button>
-      <button id="btnDraftHistory">草稿版本</button>
-      <button id="btnSelfCheck">系統檢查</button>
-      <button id="btnReload">重新載入官網</button>
-    </div>
-
-    <div class="publishbar">
-      <button id="btnPreviewPublish" class="preview-btn">① 發布測試版</button>
-      <button id="btnCheckPreview" disabled>檢查測試版部署</button>
-      <button id="btnOpenPreview" disabled>② 開啟測試版</button>
-      <button id="btnPromote" class="live-btn" disabled>③ 套用正式網站</button>
-    </div>
-
-    <div class="devices">
-      <button data-width="1440" class="active">桌機</button>
-      <button data-width="820">平板</button>
-      <button data-width="390">手機</button>
-    </div>
-  </header>
-
-  <div class="statusbar">
-    <span id="status">編輯器啟動中…</span>
-    <span class="status-note">修改會自動暫存；「儲存草稿」會建立可恢復版本。重新載入官網不再刪除備份。</span>
-  </div>
-
-  <main class="workspace">
-    <section class="canvas-panel">
-      <div id="canvasFrame" class="canvas-frame" data-width="1440">
-        <iframe id="siteFrame" title="CHINON 網站即時畫布"></iframe>
-      </div>
-    </section>
-
-    <aside class="inspector">
-      <div class="inspector-title">
-        <strong>選取物件</strong>
-        <span id="selectedLabel">尚未選取</span>
-      </div>
-
-      <section>
-        <h3>文字</h3>
-        <label>字型
-          <select id="fontFamily">
-            <option value="">不變更</option>
-            <option value='"Noto Sans TC", sans-serif'>思源黑體</option>
-            <option value='"Noto Serif TC", serif'>思源宋體</option>
-            <option value='"LXGW WenKai TC", serif'>霞鶩文楷</option>
-            <option value='"Iansui", cursive'>芫荽體</option>
-            <option value='"Klee One", cursive'>Klee 手寫體</option>
-            <option value='"Zen Kurenaido", cursive'>Zen 手寫體</option>
-            <option value='"Yuji Syuku", serif'>Yuji 書寫體</option>
-          </select>
-        </label>
-        <label>字體大小
-          <select id="fontSize">
-            <option value="">不變更</option>
-            <option>12px</option><option>14px</option><option>16px</option><option>18px</option>
-            <option>20px</option><option>22px</option><option>24px</option><option>28px</option>
-            <option>32px</option><option>36px</option><option>40px</option><option>48px</option>
-            <option>56px</option><option>64px</option><option>72px</option><option>80px</option>
-            <option>96px</option><option>120px</option>
-          </select>
-        </label>
-        <label>粗細
-          <select id="fontWeight">
-            <option value="">不變更</option>
-            <option value="300">300｜細</option>
-            <option value="400">400｜一般</option>
-            <option value="500">500｜中等</option>
-            <option value="600">600｜半粗</option>
-            <option value="700">700｜粗體</option>
-            <option value="800">800｜很粗</option>
-            <option value="900">900｜最粗</option>
-          </select>
-        </label>
-        <label>對齊
-          <select id="textAlign">
-            <option value="">不變更</option>
-            <option value="left">靠左</option>
-            <option value="center">置中</option>
-            <option value="right">靠右</option>
-            <option value="justify">左右對齊</option>
-          </select>
-        </label>
-        <label>行高
-          <select id="lineHeight">
-            <option value="">不變更</option>
-            <option value="1">1.0</option><option value="1.2">1.2</option><option value="1.4">1.4</option>
-            <option value="1.6">1.6</option><option value="1.8">1.8</option><option value="2">2.0</option>
-          </select>
-        </label>
-        <label>字距
-          <select id="letterSpacing">
-            <option value="">不變更</option>
-            <option value="-2px">-2 px</option><option value="-1px">-1 px</option><option value="0px">0</option>
-            <option value="1px">1 px</option><option value="2px">2 px</option><option value="4px">4 px</option>
-            <option value="6px">6 px</option><option value="8px">8 px</option>
-          </select>
-        </label>
-        <label>文字顏色 <input id="textColor" type="color" value="#222222"></label>
-        <label>文字陰影
-          <select id="textShadow">
-            <option value="">不變更</option>
-            <option value="none">無</option>
-            <option value="0 2px 4px rgba(0,0,0,.2)">柔和陰影</option>
-            <option value="0 4px 10px rgba(0,0,0,.3)">明顯陰影</option>
-          </select>
-        </label>
-      </section>
-
-      <section>
-        <h3>尺寸／間距</h3>
-        <label>寬度
-          <select id="widthCtl">
-            <option value="">不變更</option>
-            <option value="auto">自動</option><option value="25%">25%</option><option value="33.333%">1/3</option>
-            <option value="50%">50%</option><option value="66.667%">2/3</option><option value="75%">75%</option>
-            <option value="100%">100%</option><option value="240px">240 px</option><option value="320px">320 px</option>
-            <option value="480px">480 px</option><option value="640px">640 px</option>
-          </select>
-        </label>
-        <label>上外距
-          <select id="marginTop"><option value="">不變更</option><option value="0">0</option><option value="8px">8 px</option><option value="16px">16 px</option><option value="24px">24 px</option><option value="40px">40 px</option><option value="64px">64 px</option></select>
-        </label>
-        <label>下外距
-          <select id="marginBottom"><option value="">不變更</option><option value="0">0</option><option value="8px">8 px</option><option value="16px">16 px</option><option value="24px">24 px</option><option value="40px">40 px</option><option value="64px">64 px</option></select>
-        </label>
-        <label>上內距
-          <select id="paddingTop"><option value="">不變更</option><option value="0">0</option><option value="8px">8 px</option><option value="16px">16 px</option><option value="24px">24 px</option><option value="40px">40 px</option><option value="64px">64 px</option></select>
-        </label>
-        <label>下內距
-          <select id="paddingBottom"><option value="">不變更</option><option value="0">0</option><option value="8px">8 px</option><option value="16px">16 px</option><option value="24px">24 px</option><option value="40px">40 px</option><option value="64px">64 px</option></select>
-        </label>
-      </section>
-
-      <section>
-        <h3>圖片／背景</h3>
-        <label>圖片填滿
-          <select id="objectFit">
-            <option value="">不變更</option>
-            <option value="contain">完整顯示</option>
-            <option value="cover">填滿裁切</option>
-            <option value="fill">拉伸填滿</option>
-          </select>
-        </label>
-        <label>圖片焦點
-          <select id="objectPosition">
-            <option value="">不變更</option>
-            <option value="left top">左上</option><option value="center top">上中</option><option value="right top">右上</option>
-            <option value="left center">左中</option><option value="center center">正中央</option><option value="right center">右中</option>
-            <option value="left bottom">左下</option><option value="center bottom">下中</option><option value="right bottom">右下</option>
-          </select>
-        </label>
-        <label>背景位置
-          <select id="backgroundPosition">
-            <option value="">不變更</option>
-            <option value="left top">左上</option><option value="center top">上中</option><option value="right top">右上</option>
-            <option value="left center">左中</option><option value="center center">正中央</option><option value="right center">右中</option>
-            <option value="left bottom">左下</option><option value="center bottom">下中</option><option value="right bottom">右下</option>
-          </select>
-        </label>
-        <label>背景尺寸
-          <select id="backgroundSize">
-            <option value="">不變更</option>
-            <option value="cover">填滿裁切</option>
-            <option value="contain">完整顯示</option>
-            <option value="auto">原始尺寸</option>
-          </select>
-        </label>
-        <label>背景顏色 <input id="backgroundColor" type="color" value="#ffffff"></label>
-        <label>圓角
-          <select id="borderRadius"><option value="">不變更</option><option value="0">直角</option><option value="8px">8 px</option><option value="16px">16 px</option><option value="24px">24 px</option><option value="9999px">膠囊</option><option value="50%">圓形</option></select>
-        </label>
-        <label>陰影
-          <select id="boxShadow"><option value="">不變更</option><option value="none">無</option><option value="0 4px 14px rgba(0,0,0,.12)">柔和</option><option value="0 12px 32px rgba(0,0,0,.2)">明顯</option></select>
-        </label>
-      </section>
+</header>
 
 
-      <section id="mobileLayoutSection">
-        <h3>手機版排版</h3>
-        <p class="inspector-help">只影響手機寬度（680px 以下），桌機版不會改變。</p>
+<main>
+  <section class="home-hero">
+    <img class="home-hero-bg" src="/assets/uploads/v10-mv96948h-1.png" alt="奇農自然生活">
+    <div class="home-hero-wash"></div>
 
-        <label>圖文上下順序
-          <select id="mobileOrder">
-            <option value="">跟隨原本</option>
-            <option value="text-first">文字在上・圖片在下</option>
-            <option value="image-first">圖片在上・文字在下</option>
-          </select>
-        </label>
-
-        <label>手機圖片顯示
-          <select id="mobileImageFit">
-            <option value="">跟隨原本</option>
-            <option value="contain">完整顯示・不裁切</option>
-            <option value="cover">填滿裁切</option>
-          </select>
-        </label>
-
-        <button id="btnMobileRecommended" type="button" class="full accent">
-          推薦：文字在上＋圖片完整顯示
-        </button>
-        <p id="mobileLayoutHint" class="inspector-help small">先點選左右圖文區塊中的文字或圖片。</p>
-      </section>
-
-      <section>
-        <h3>連結</h3>
-        <label>網址 <input id="linkUrl" type="text" placeholder="https://... 或 about.html"></label>
-        <button id="btnApplyLink" class="full">套用連結</button>
-      </section>
-    </aside>
-  </main>
-
-  <input id="addImageInput" type="file" accept="image/*" hidden>
-  <input id="flowImageInput" type="file" accept="image/*" hidden>
-  <input id="replaceImageInput" type="file" accept="image/*" hidden>
-  <input id="backgroundInput" type="file" accept="image/*" hidden>
-
-
-  <dialog id="draftHistoryDialog">
-    <div class="dialog-card">
-      <div class="dialog-head">
-        <strong id="draftHistoryTitle">草稿版本</strong>
-        <button id="btnCloseDraftHistory" type="button">✕</button>
-      </div>
-      <p class="draft-help">這裡保留手動儲存與重新載入前的版本。恢復版本不會直接改正式網站。</p>
-      <div id="draftHistoryList" class="draft-history-list"></div>
-      <div class="dialog-actions">
-        <button id="btnSaveVersionNow" type="button" class="primary">現在建立版本</button>
-      </div>
-    </div>
-  </dialog>
-
-  <dialog id="selfCheckDialog">
-    <div class="dialog-card">
-      <div class="dialog-head"><strong>V10 系統檢查</strong><button id="btnCloseSelfCheck" type="button">✕</button></div>
-      <div id="selfCheckResults" class="self-check-results">尚未執行。</div>
-      <div class="dialog-actions"><button id="btnRunSelfCheck" type="button" class="primary">重新檢查</button></div>
-    </div>
-  </dialog>
-
-  <dialog id="publishDialog">
-    <form method="dialog" class="dialog-card">
-      <div class="dialog-head"><strong id="publishTitle">發布設定</strong><button value="cancel">✕</button></div>
-      <p id="publishIntro">第一次發布需要 GitHub Token。</p>
-      <div class="grid2">
-        <label>GitHub Owner<input id="publishOwner" value="TSRCBC"></label>
-        <label>Repository<input id="publishRepo" value="TSRCBC.github.io"></label>
-        <label>Branch<input id="publishBranch" value="main"></label>
-        <label>GitHub Token<input id="publishToken" type="password" placeholder="github_pat_..."></label>
-      </div>
-      <label class="check"><input id="rememberToken" type="checkbox"> 記住這台電腦的 Token</label>
-      <div id="publishProgress" class="publish-progress"></div>
-      <div id="baselineConflictActions" class="baseline-conflict-actions" hidden>
-        <div class="baseline-conflict-note">
-          目前草稿會完整保留。只有在你確認 GitHub 上的新版本可以由目前草稿繼續編輯時，才使用下方同步。
+    <div class="container home-hero-inner">
+      <div class="hero-copy">
+        <div class="eyebrow" style="text-shadow: rgba(0, 0, 0, 0.3) 0px 4px 10px;">CHINON · TAIWAN</div>
+        <h1 style="font-size: 35.9px; font-family: &quot;Klee One&quot;, cursive; text-shadow: rgba(0, 0, 0, 0.3) 0px 4px 10px;">奇農｜CHINON<div style="font-family: &quot;Klee One&quot;, cursive; width: 374px; letter-spacing: 2px; text-shadow: rgba(0, 0, 0, 0.3) 0px 4px 10px; font-size: 28px;"><br>把自然的美好，<br>帶進每一天的生活。</div></h1>
+        <p>一杯茶，一份平衡，讓更好的日常，從一杯奇農開始。</p>
+        <div class="hero-actions">
+          <a class="btn primary" href="/preview/gaba.html">了解 GABA 桑茶 →</a>
+          <a class="text-link" href="/preview/about.html">認識奇農</a>
         </div>
-        <button id="btnSyncBaselineKeepDraft" type="button">保留草稿並同步最新版本</button>
       </div>
-      <div class="dialog-actions">
-        <button value="cancel">取消</button>
-        <button id="btnDoPublish" type="button" class="primary">開始</button>
-      </div>
-    </form>
-  </dialog>
 
-  <script src="editor.js?v=1100"></script>
-</body>
-</html>
+      <div class="hero-note">自然的溫度<br>就是最好的養分。</div>
+    </div>
+  </section>
+
+  <section class="story-band">
+    <div class="container story-grid">
+      <div class="story-photo">
+        <img src="/assets/uploads/v10-mv96948h-2.webp" alt="奇農桑葉與土地" loading="lazy" decoding="async">
+      </div>
+
+      <div class="story-copy">
+        <div class="eyebrow olive">ABOUT CHINON</div>
+        <h2 style="font-family: &quot;Klee One&quot;, cursive;">關於奇農 CHINON</h2>
+        <p>來自土地的純粹，守護健康的初心。奇農以天然植萃、製茶工藝與安心檢驗為核心，持續把台灣桑葉製成更容易融入日常生活的茶品。</p>
+        <a class="btn soft" href="/preview/about.html">認識我們 →</a>
+      </div>
+
+      <div class="value-list">
+        <div class="value-item"><span>❧</span><strong>天然植萃</strong><small>純淨自然</small></div>
+        <div class="value-item"><span>♡</span><strong>科學實證</strong><small>安心有感</small></div>
+        <div class="value-item"><span>⌾</span><strong>健康日常</strong><small>平衡調理</small></div>
+        <div class="value-item"><span>✿</span><strong>在地關懷</strong><small>共好永續</small></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section product-showcase">
+    <div class="container product-duo">
+      <article class="feature-product">
+        <div class="feature-product-copy">
+          <div class="mini-brand">奇農｜CHINON</div>
+          <h2 style="font-family: &quot;Klee One&quot;, cursive;">GABA 桑茶</h2>
+          <p>天然桑葉・科學實證</p>
+          <p class="body-copy">嚴選台灣桑葉，透過特殊發酵與烘焙工藝，呈現香醇、回甘的日常茶飲。</p>
+          <a class="btn soft" href="/preview/gaba.html">探索產品 →</a>
+        </div>
+        <img src="/assets/uploads/v10-mv96948h-3.webp" alt="GABA 桑茶 天然果香" loading="lazy" decoding="async">
+      </article>
+
+      <article class="feature-product maca">
+        <div class="feature-product-copy">
+          <div class="mini-brand">奇農｜CHINON</div>
+          <h2 style="font-family: &quot;Klee One&quot;, cursive;">秘魯瑪卡</h2>
+          <p>來自安地斯的天然能量</p>
+          <p class="body-copy">保留原有秘魯黃金瑪卡產品資訊與有機、產地證明，作為日常健康選擇。</p>
+          <a class="btn soft" href="/preview/maca.html">探索產品 →</a>
+        </div>
+        <img src="/assets/uploads/v10-mv96948h-4.png" alt="秘魯黃金瑪卡" loading="lazy" decoding="async">
+      </article>
+    </div>
+  </section>
+
+  <section class="benefit-strip">
+    <div class="container benefit-inner">
+      <div class="benefit-copy">
+        <div class="eyebrow olive">DAILY RITUAL</div>
+        <h2 style="font-family: &quot;Klee One&quot;, cursive;">一杯茶，<br>遇見更好的自己</h2>
+        <p>天天一杯，感受來自自然的溫柔力量。</p>
+      </div>
+
+      <div class="benefit-items">
+        <div><span>◐</span><strong>舒適放鬆</strong><small>日常節奏更從容</small></div>
+        <div><span>❧</span><strong>調節生理機能</strong><small>保留原有健康訴求語境</small></div>
+        <div><span>◈</span><strong>滋補強身</strong><small>自然原料日常補給</small></div>
+        <div><span>✿</span><strong>養顏美容</strong><small>維持青春活力</small></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section info-panels">
+    <div class="container info-panel-grid">
+      <article class="editorial-card">
+        <img src="/assets/uploads/v10-mv6c5nv7-1.png" alt="製茶堅持" style="width: 763px; height: auto;" loading="lazy" decoding="async">
+        <div>
+          <div class="eyebrow olive">CRAFT</div>
+          <h3 style="font-family: &quot;Klee One&quot;, cursive;">製茶堅持</h3>
+          <p>天然・純粹・用心，從原料、採摘到發酵烘焙，每一步都保留製茶師傅的經驗與風味。</p>
+          <a class="text-link" href="/preview/craft.html">了解更多 →</a>
+        </div>
+      </article>
+
+      <article class="editorial-card">
+        <img src="/assets/uploads/v10-mv6c5nv7-2.png" alt="檢測證書" style="width: 761px; height: auto;" loading="lazy" decoding="async">
+        <div>
+          <div class="eyebrow olive">QUALITY</div>
+          <h3 style="font-family: &quot;Klee One&quot;, cursive;">檢測證書</h3>
+          <p>農藥檢測、SGS 報告與秘魯瑪卡相關證明集中整理，讓品質資訊更容易查閱。</p>
+          <a class="text-link" href="/preview/certificates.html">查看證書 →</a>
+        </div>
+      </article>
+
+      <article class="news-card">
+        <div class="eyebrow olive">INFORMATION</div>
+        <h3 style="font-family: &quot;Klee One&quot;, cursive;">相關資訊</h3>
+        <a href="/preview/gaba.html"><span>GABA 是什麼？</span><small>認識成分與桑茶製程</small></a>
+        <a href="/preview/craft.html"><span>桑葉茶怎麼製作？</span><small>從原料到發酵烘焙</small></a>
+        <a href="/preview/certificates.html"><span>安心檢驗資料</span><small>集中查看檢測與證明</small></a>
+        <a class="text-link" href="/preview/info.html">查看更多 →</a>
+      </article>
+    </div>
+  </section>
+
+  <section class="closing-banner">
+    <img src="/assets/uploads/v10-mv96948h-5.png" alt="奇農茶園" loading="lazy" decoding="async">
+    <div class="closing-overlay"></div>
+    <div class="container closing-content">
+      <p>來自自然的力量，陪伴你更好的每一天。</p>
+      <a class="btn light" href="https://tsrcbc.cashier.ecpay.com.tw/" target="_blank" rel="noopener">探索奇農產品 →</a>
+    </div>
+  </section>
+</main>
+
+
+<footer class="site-footer">
+  <div class="container footer-main">
+    <div class="footer-brand">
+      <div class="brand-inline">
+        <img src="/assets/chinon-logo.png" alt="奇農 CHINON Logo">
+        <div><strong style="font-family: &quot;Klee One&quot;, cursive;">奇農 CHINON</strong><span>黃金 GABA 桑茶</span></div>
+      </div>
+      <p>來自土地的自然好物，把天然、工藝與安心帶進每天的生活。</p>
+    </div>
+
+    <div>
+      <strong>關於奇農</strong>
+      <a href="/preview/about.html">品牌故事</a>
+      <a href="/preview/craft.html">製茶堅持</a>
+      <a href="/preview/certificates.html">檢測證書</a>
+    </div>
+
+    <div>
+      <strong>產品專區</strong>
+      <a href="/preview/gaba.html">GABA 桑茶</a>
+      <a href="/preview/maca.html">秘魯瑪卡</a>
+      <a href="/preview/info.html">相關資訊</a>
+    </div>
+
+    <div>
+      <strong>聯絡資訊</strong>
+      <a href="tel:0286711968">02-8671-1968</a>
+      <a href="tel:0909827828">0909-827828 張先生</a>
+      <a href="mailto:service@tsrcbc.info">service@tsrcbc.info</a>
+      <span>苗栗市正發路29號2樓</span>
+    </div>
+  </div>
+  <div class="container footer-bottom">版權所有 © 鷹耀國際有限公司</div>
+</footer>
+
+<script src="/main.js"></script>
+
+</body></html>
