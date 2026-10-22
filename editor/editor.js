@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const BUILD = 'V10.14.1 ANALYTICS FIX';
+const BUILD = 'V10.15 MOTION PRESET';
 window.CHINON_ACTIVE_BUILD = BUILD;
 const FONT_URL = 'https://fonts.googleapis.com/css2?family=Iansui&family=Klee+One:wght@400;600&family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&family=Noto+Serif+TC:wght@400;500;600;700;800;900&family=Yuji+Syuku&family=Zen+Kurenaido&display=swap';
 
@@ -181,6 +181,9 @@ const ENTRANCE_ATTR = 'data-chinon-entrance';
 const ENTRANCE_SPEED_ATTR = 'data-chinon-entrance-speed';
 const ENTRANCE_DELAY_ATTR = 'data-chinon-entrance-delay';
 const ENTRANCE_REPEAT_ATTR = 'data-chinon-entrance-repeat';
+const MOTION_PRESET_META = 'chinon-motion-preset';
+const MOTION_PRESET_VERSION = 'v1';
+
 const VIDEO_BLOCK_CLASS = 'chinon-video-block';
 const FLOW_IMAGE_BLOCK_CLASS = 'chinon-flow-image-block';
 const SELECT_ATTR = 'data-chinon-v10-selected';
@@ -1751,6 +1754,291 @@ function ensureSiteEffects(doc=iframe.contentDocument){
     doc.body.appendChild(script);
   }
   setTimeout(()=>doc.defaultView?.CHINON_SITE_INIT?.(),0);
+}
+
+
+/* ---------- all-site recommended motion preset ---------- */
+function motionPresetVersionFromDoc(doc){
+  return doc?.head?.querySelector(`meta[name="${MOTION_PRESET_META}"]`)?.getAttribute('content')||'';
+}
+
+function setMotionPresetMarker(doc){
+  if(!doc?.head) return;
+  let meta=doc.head.querySelector(`meta[name="${MOTION_PRESET_META}"]`);
+  if(!meta){
+    meta=doc.createElement('meta');
+    meta.setAttribute('name',MOTION_PRESET_META);
+    doc.head.appendChild(meta);
+  }
+  meta.setAttribute('content',MOTION_PRESET_VERSION);
+}
+
+function setRecommendedEntrance(el,delay='0.2'){
+  if(!el) return false;
+  const before=[
+    el.getAttribute(ENTRANCE_ATTR)||'',
+    el.getAttribute(ENTRANCE_SPEED_ATTR)||'',
+    el.getAttribute(ENTRANCE_DELAY_ATTR)||'',
+    el.getAttribute(ENTRANCE_REPEAT_ATTR)||''
+  ].join('|');
+
+  el.setAttribute(ENTRANCE_ATTR,'fade');
+  el.setAttribute(ENTRANCE_SPEED_ATTR,'normal');
+  el.setAttribute(ENTRANCE_DELAY_ATTR,delay);
+  el.setAttribute(ENTRANCE_REPEAT_ATTR,'once');
+  el.classList.remove('chinon-in','chinon-anim-ready');
+
+  const after=['fade','normal',delay,'once'].join('|');
+  return before!==after;
+}
+
+function recommendedMotionTargets(doc,file){
+  const picked=[];
+  const seen=new Set();
+
+  const add=(selector,delay='0.2')=>{
+    doc.querySelectorAll(selector).forEach(el=>{
+      if(!el || seen.has(el)) return;
+      if(el.closest('header,footer,.site-header,.site-footer,.nav-wrap,.nav-links')) return;
+      seen.add(el);
+      picked.push({el,delay});
+    });
+  };
+
+  // 主要首屏稍微晚一點，避免跟一般內容同時出現而失去層次。
+  const heroSelectors = {
+    'index.html': '.home-hero .hero-copy,.hero .hero-content',
+    'about.html': '.subhero .subhero-content',
+    'craft.html': '.subhero .subhero-content',
+    'gaba.html': '.subhero .subhero-content',
+    'maca.html': '.subhero .subhero-content',
+    'certificates.html': '.subhero .subhero-content',
+    'info.html': '.subhero .subhero-content',
+    'contact.html': '.contact-hero .container,.contact-hero .contact-hero-content'
+  };
+  add(heroSelectors[file]||'.subhero-content,.hero-content','0.4');
+
+  const pageSelectors = {
+    'index.html': [
+      '.chinon-video-block',
+      '.story-copy','.story-photo','.value-list',
+      '.feature-product',
+      '.benefit-inner',
+      '.editorial-card','.news-card',
+      '.closing-content',
+      '.chinon-flow-image-block'
+    ],
+    'about.html': [
+      '.two-column-copy',
+      '.history-grid',
+      '.split-story-image','.split-story-copy',
+      '.chinon-flow-image-block'
+    ],
+    'craft.html': [
+      '.intro-narrow > .container',
+      '.craft-row',
+      '.chinon-flow-image-block'
+    ],
+    'gaba.html': [
+      '.editorial-grid',
+      '.deep-green > .container',
+      '.flavor-grid',
+      '.chinon-flow-image-block'
+    ],
+    'maca.html': [
+      '.intro-narrow > .container',
+      '.long-image-stack',
+      '.chinon-flow-image-block'
+    ],
+    'certificates.html': [
+      '.section-title',
+      '.certificate-grid',
+      '.chinon-flow-image-block'
+    ],
+    'info.html': [
+      '.info-card',
+      '.chinon-flow-image-block'
+    ],
+    'contact.html': [
+      '.contact-card',
+      '.chinon-flow-image-block'
+    ]
+  };
+
+  (pageSelectors[file]||[]).forEach(sel=>add(sel,'0.2'));
+
+  // 如果頁面之後有改版、舊 class 不存在，仍至少讓主要內容區塊有一致的淡入。
+  if(picked.length===0){
+    add('main > section:not(.home-hero):not(.hero):not(.subhero):not(.contact-hero), main > article','0.2');
+  }
+
+  return picked;
+}
+
+function applyRecommendedMotionToDocument(doc,file,{force=false}={}){
+  if(!doc?.head || !doc?.body) return {changed:false,count:0,total:0,skipped:true};
+
+  if(!force && motionPresetVersionFromDoc(doc)===MOTION_PRESET_VERSION){
+    return {changed:false,count:0,total:0,skipped:true};
+  }
+
+  ensureSiteEffects(doc);
+  const targets=recommendedMotionTargets(doc,file);
+  let count=0;
+
+  for(const item of targets){
+    if(setRecommendedEntrance(item.el,item.delay)) count++;
+  }
+
+  const oldMarker=motionPresetVersionFromDoc(doc);
+  setMotionPresetMarker(doc);
+
+  return {
+    changed:count>0 || oldMarker!==MOTION_PRESET_VERSION,
+    count,
+    total:targets.length,
+    skipped:false
+  };
+}
+
+async function applyRecommendedMotionAll({force=false,silent=false}={}){
+  const btn=$('#btnApplyMotionAll');
+  const result=$('#motionPresetResult');
+  const original=btn?.textContent||'重新套用 8 頁建議動畫';
+
+  if(btn){
+    btn.disabled=true;
+    btn.textContent='套用中 0 / 8…';
+  }
+  if(result){
+    result.textContent='⏳ 正在準備 8 個頁面的建議動畫…';
+    result.className='motion-preset-result working';
+  }
+
+  try{
+    if(hasLoadedPage) captureCurrentPage();
+    await persistDraftMap({silent:true});
+    const settings=readStoredRepoSettings();
+
+    let changedPages=0;
+    let changedElements=0;
+    let totalTargets=0;
+    let processed=0;
+
+    for(const page of SITE_PAGES){
+      processed++;
+      if(btn) btn.textContent=`套用中 ${processed} / ${SITE_PAGES.length}…`;
+      if(result) result.textContent=`⏳ ${processed}/${SITE_PAGES.length}：${page.name}`;
+      setStatus(`建議動畫：${processed}/${SITE_PAGES.length} 正在處理 ${page.name}…`);
+      await new Promise(resolve=>setTimeout(resolve,0));
+
+      const existing=pageDrafts.get(page.file);
+      let source=existing?.html||'';
+      let repo=null;
+
+      if(!source){
+        repo=await fetchRepoFileState(page.file,settings);
+        source=repo.text;
+      }else if(!existing?.baseHash || !existing?.baseRepoSha){
+        try{ repo=await fetchRepoFileState(page.file,settings); }catch{}
+      }
+
+      assertSafeHtml(source,page.name);
+      const doc=new DOMParser().parseFromString(source,'text/html');
+      ensurePageId(doc,page.file);
+
+      const applied=applyRecommendedMotionToDocument(doc,page.file,{force});
+      totalTargets+=applied.total;
+      changedElements+=applied.count;
+
+      const baseHash=existing?.baseHash || (repo?.text ? await hashText(repo.text) : await hashText(source));
+      const baseRepoSha=existing?.baseRepoSha || repo?.sha || '';
+      if(applied.changed) changedPages++;
+      pageDrafts.set(page.file,{
+        html:serializeDoc(doc),
+        baseHash,
+        baseRepoSha,
+        dirty:applied.changed ? true : !!existing?.dirty
+      });
+    }
+
+    await persistDraftMap({silent:true});
+
+    // 二次驗證：所有 8 頁都必須帶有預設版本標記。
+    const failed=[];
+    for(const page of SITE_PAGES){
+      const draft=pageDrafts.get(page.file);
+      if(!draft?.html){
+        failed.push(page.name);
+        continue;
+      }
+      const doc=new DOMParser().parseFromString(draft.html,'text/html');
+      if(motionPresetVersionFromDoc(doc)!==MOTION_PRESET_VERSION){
+        failed.push(page.name);
+      }
+    }
+    if(failed.length){
+      throw new Error(`動畫預設二次驗證失敗：${failed.join('、')}`);
+    }
+
+    if(currentFile){
+      const cur=pageDrafts.get(currentFile);
+      if(cur?.html){
+        currentDirty=!!cur.dirty;
+        await navigateFrame({srcdoc:toEditorSrcdoc(cur.html)});
+      }
+    }
+
+    if(changedPages){
+      $('#btnPromote').disabled=true;
+      latestPreviewCommit='';
+    }
+
+    if(result){
+      result.textContent=`✅ 8 / 8 頁已完成。${changedPages ? `本次更新 ${changedPages} 頁、${changedElements} 個內容區塊。` : '8 頁原本已套用這組建議。'}`;
+      result.className='motion-preset-result success';
+    }
+
+    setStatus(
+      changedPages
+        ? `✅ 建議動畫已套用 8/8 頁草稿，共更新 ${changedElements} 個內容區塊。下一步：發布測試版。`
+        : `✅ 8 個頁面已是建議動畫設定。`
+    );
+
+    if(!silent){
+      alert(
+        `✅ 全站建議動畫套用完成\n\n`+
+        `頁面：8 / 8\n`+
+        `本次更新頁面：${changedPages}\n`+
+        `本次更新內容區塊：${changedElements}\n\n`+
+        `一般內容：淡入／正常／0.2 秒／只播放一次\n`+
+        `主視覺：淡入／正常／0.4 秒／只播放一次\n\n`+
+        `正式網站尚未修改。\n請先發布測試版檢查，再套用正式網站。`
+      );
+    }
+
+    return {changedPages,changedElements,totalTargets};
+  }catch(err){
+    console.error('全站建議動畫套用失敗',err);
+    if(result){
+      result.textContent=`❌ 套用失敗：${err?.message||err}`;
+      result.className='motion-preset-result error';
+    }
+    setStatus(`❌ 全站建議動畫套用失敗：${err?.message||err}`);
+    if(!silent) alert(`全站建議動畫套用失敗：\n\n${err?.message||err}`);
+    return {changedPages:0,changedElements:0,totalTargets:0,error:err};
+  }finally{
+    if(btn){
+      btn.disabled=false;
+      btn.textContent=original;
+    }
+  }
+}
+
+async function seedRecommendedMotionPreset(){
+  // 首次升級到 V10.15 時自動套到 8 頁草稿。
+  // 已有 v1 標記的頁面不會再覆蓋，之後手動微調動畫也不會被啟動流程改回去。
+  return await applyRecommendedMotionAll({force:false,silent:true});
 }
 
 function syncAnimationControls(){
@@ -3384,6 +3672,7 @@ $('#entranceDelay').addEventListener('change',e=>setEntranceOption(ENTRANCE_DELA
 $('#entranceRepeat').addEventListener('change',e=>setEntranceOption(ENTRANCE_REPEAT_ATTR,e.target.value));
 $('#btnPreviewAnimation').addEventListener('click',previewEntranceAnimation);
 $('#btnClearAnimation').addEventListener('click',clearEntranceAnimation);
+$('#btnApplyMotionAll').addEventListener('click',()=>applyRecommendedMotionAll({force:true,silent:false}));
 
 [
  ['fontFamily','fontFamily'],['fontSize','fontSize'],['fontWeight','fontWeight'],
@@ -3456,12 +3745,15 @@ window.addEventListener('pagehide',()=>{
       $('#btnPromote').disabled=true;
     }
     const seoSeeded=await seedRecommendedSeoDefaults();
+    const motionSeeded=await seedRecommendedMotionPreset();
     await loadPage('index.html');
-    setStatus(
-      seoSeeded
-        ? `${BUILD} 已完成啟動。已自動預填 ${seoSeeded} 個頁面的建議 SEO 到草稿。`
-        : `${BUILD} 已完成啟動。Analytics 套用已加入 8/8 頁寫入驗證與明確完成回饋。`
-    );
+    if(motionSeeded?.changedPages){
+      setStatus(`${BUILD} 已完成啟動。建議動畫已自動套用 8/8 頁草稿，共更新 ${motionSeeded.changedElements} 個內容區塊；請先發布測試版檢查。`);
+    }else if(seoSeeded){
+      setStatus(`${BUILD} 已完成啟動。已自動預填 ${seoSeeded} 個頁面的建議 SEO 到草稿。`);
+    }else{
+      setStatus(`${BUILD} 已完成啟動。8 頁建議動畫、SEO、Analytics 功能均已就緒。`);
+    }
   }catch(err){
     console.error(err); setStatus(`啟動失敗：${err.message}`);
   }

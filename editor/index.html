@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>CHINON 視覺網站編輯器</title>
-  <link rel="stylesheet" href="editor.css?v=1141">
+  <link rel="stylesheet" href="editor.css?v=1150">
 </head>
 <body class="auth-locked">
   <div id="loginGate" class="login-gate">
@@ -32,7 +32,7 @@
 
   <header class="topbar">
     <div class="brand">
-      <strong>CHINON 編輯器 <span id="buildLabel">V10.14.1 ANALYTICS FIX</span></strong>
+      <strong>CHINON 編輯器 <span id="buildLabel">V10.15 MOTION PRESET</span></strong>
       <span>同源畫布・先測試版・確認後再套正式站</span>
     </div>
 
@@ -92,7 +92,7 @@
 
   <div class="statusbar">
     <span id="status">編輯器啟動中…</span>
-    <span class="build-badge">V10.14.1</span>
+    <span class="build-badge">V10.15</span>
       <span class="status-note">修改會自動暫存；「儲存草稿」會建立可恢復版本。重新載入官網不再刪除備份。</span>
   </div>
 
@@ -399,6 +399,15 @@
             <button id="btnPreviewAnimation" type="button">預覽動畫</button>
             <button id="btnClearAnimation" type="button">移除動畫</button>
           </div>
+
+          <div class="motion-preset-box">
+            <strong>全站建議動畫</strong>
+            <span>一般內容：淡入／正常／0.2 秒／只播放一次</span>
+            <span>每頁主視覺：淡入／正常／0.4 秒／只播放一次</span>
+            <span>不套用導覽列、頁尾與小圖示，避免畫面太花。</span>
+            <div id="motionPresetResult" class="motion-preset-result" aria-live="polite">首次開啟 V10.15 會自動套用到 8 個頁面草稿。</div>
+            <button id="btnApplyMotionAll" type="button" class="full accent">重新套用 8 頁建議動畫</button>
+          </div>
         </div>
       </details>
 
@@ -524,10 +533,10 @@
     </form>
   </dialog>
 
-  <script src="editor.js?v=1141"></script>
+  <script src="editor.js?v=1150"></script>
   <script>
     window.setTimeout(function(){
-      var expected='V10.14.1 ANALYTICS FIX';
+      var expected='V10.15 MOTION PRESET';
       if(window.CHINON_ACTIVE_BUILD!==expected){
         var s=document.getElementById('status');
         if(s) s.textContent='版本載入異常：HTML 已更新，但 JavaScript 仍是舊快取。請按 Ctrl + Shift + R。';

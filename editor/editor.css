@@ -458,3 +458,45 @@ dialog::backdrop{background:rgba(0,0,0,.68)}
 }
 .analytics-note strong{color:#d9f0e1;margin-bottom:2px;}
 \n\n/* V10.14.1 ANALYTICS FIX */\n.analytics-result{\n  margin:7px 0 10px;\n  padding:8px 10px;\n  border-radius:8px;\n  border:1px solid #33404d;\n  background:#18212b;\n  color:#cbd6df;\n  font-size:11px;\n  line-height:1.55;\n}\n.analytics-result.working{border-color:#756226;background:#2b260f;color:#f4dda0}\n.analytics-result.success{border-color:#315b45;background:#14261d;color:#bfe8cf}\n.analytics-result.error{border-color:#744040;background:#2a1717;color:#ffc0c0}\n
+
+/* V10.15 MOTION PRESET */
+.motion-preset-box{
+  margin-top:12px;
+  padding:11px;
+  border:1px solid #435746;
+  border-radius:9px;
+  background:#172019;
+  display:grid;
+  gap:5px;
+}
+.motion-preset-box>strong{
+  color:#dcebdd;
+  font-size:12px;
+}
+.motion-preset-box>span{
+  color:#9fb0a1;
+  font-size:10px;
+  line-height:1.45;
+}
+.motion-preset-result{
+  margin:5px 0 3px;
+  padding:7px 8px;
+  border-radius:7px;
+  background:#111820;
+  border:1px solid #34414d;
+  color:#cbd4dd;
+  font-size:10px;
+  line-height:1.45;
+}
+.motion-preset-result.working{
+  border-color:#665826;
+  color:#eadb9d;
+}
+.motion-preset-result.success{
+  border-color:#365e45;
+  color:#c8e8d0;
+}
+.motion-preset-result.error{
+  border-color:#743b3b;
+  color:#f2b9b9;
+}
