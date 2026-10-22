@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const BUILD = 'V10.10.1 MOBILE TOP';
+const BUILD = 'V10.10.2 SMART REPLACE';
 const FONT_URL = 'https://fonts.googleapis.com/css2?family=Iansui&family=Klee+One:wght@400;600&family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&family=Noto+Serif+TC:wght@400;500;600;700;800;900&family=Yuji+Syuku&family=Zen+Kurenaido&display=swap';
 
 /* ---------- login ---------- */
@@ -99,6 +99,7 @@ let currentDirty = false;
 let dragState = null;
 let resizeState = null;
 let pendingFlowImagePosition = 'above';
+let pendingReplaceTarget=null;
 let pageDrafts = new Map();
 let draftHistory = new Map();
 let undoStack = [];
@@ -1012,10 +1013,127 @@ async function addImage(file){
   selectElement(img); markDirty();
   img.scrollIntoView({block:'center',behavior:'smooth'});
 }
-async function replaceImage(file){
-  if(!file || !selected || selected.tagName!=='IMG'){ alert('請先點選要更換的圖片。'); return; }
-  pushUndo(); selected.src=await prepareImageDataUrl(file); markDirty(); updateHandle();
+
+function elementArea(el){
+  try{
+    const r=el.getBoundingClientRect();
+    if(r.width<=0 || r.height<=0) return 0;
+    const cs=iframe.contentWindow.getComputedStyle(el);
+    if(cs.display==='none' || cs.visibility==='hidden' || Number(cs.opacity)===0) return 0;
+    return r.width*r.height;
+  }catch{return 0}
 }
+
+function hasCssBackground(el){
+  if(!el || el.nodeType!==1) return false;
+  try{
+    const bg=iframe.contentWindow.getComputedStyle(el).backgroundImage;
+    return !!bg && bg!=='none' && /url\(/i.test(bg);
+  }catch{return false}
+}
+
+function isProtectedReplaceImage(img){
+  if(!img) return true;
+  if(img.closest?.('.site-header,.site-footer')) return true;
+  if(img.closest?.('.brand,.brand-inline')) return true;
+  return false;
+}
+
+function findSmartReplaceTarget(start=selected){
+  if(!start) return null;
+
+  if(start.tagName==='IMG' && !isProtectedReplaceImage(start)){
+    return {type:'img',el:start,label:'目前圖片'};
+  }
+
+  if(hasCssBackground(start) && !start.closest?.('.site-header,.site-footer')){
+    return {type:'background',el:start,label:'目前區塊背景'};
+  }
+
+  const containers=[];
+  let cur=start;
+  for(let i=0;i<5 && cur && cur!==iframe.contentDocument.body;i++,cur=cur.parentElement){
+    containers.push(cur);
+  }
+
+  for(const container of containers){
+    const images=[...(container.querySelectorAll?.('img')||[])]
+      .filter(img=>!isProtectedReplaceImage(img))
+      .map(img=>({img,area:elementArea(img)}))
+      .filter(x=>x.area>0)
+      .sort((a,b)=>b.area-a.area);
+
+    if(images.length){
+      return {type:'img',el:images[0].img,label:'區塊內主圖片'};
+    }
+
+    const nodes=[container,...(container.querySelectorAll?.('*')||[])];
+    const bgCandidates=nodes
+      .filter(el=>hasCssBackground(el) && !el.closest?.('.site-header,.site-footer'))
+      .map(el=>({el,area:elementArea(el)}))
+      .filter(x=>x.area>0)
+      .sort((a,b)=>b.area-a.area);
+
+    if(bgCandidates.length){
+      return {type:'background',el:bgCandidates[0].el,label:'區塊主背景'};
+    }
+  }
+
+  return null;
+}
+
+function describeReplaceTarget(target){
+  if(!target?.el) return '找不到圖片';
+  const tag=target.el.tagName?.toLowerCase()||'element';
+  const cls=[...(target.el.classList||[])].slice(0,2).join('.');
+  return `${target.label}（${tag}${cls?'.'+cls:''}）`;
+}
+
+function requestReplaceImage(){
+  const target=findSmartReplaceTarget(selected);
+  if(!target){
+    alert('這個區塊裡找不到可更換的圖片或背景。請改點圖片附近的卡片／區塊後再試。');
+    return;
+  }
+  pendingReplaceTarget=target;
+  setStatus(`已找到${describeReplaceTarget(target)}，請選擇新的圖片。`);
+  $('#replaceImageInput').click();
+}
+
+async function replaceImage(file){
+  if(!file) return;
+
+  const target=pendingReplaceTarget?.el?.isConnected
+    ? pendingReplaceTarget
+    : findSmartReplaceTarget(selected);
+
+  pendingReplaceTarget=null;
+
+  if(!target?.el){
+    alert('找不到可以更換的圖片或背景。');
+    return;
+  }
+
+  pushUndo();
+  const src=await prepareImageDataUrl(file);
+
+  if(target.type==='img'){
+    target.el.src=src;
+    selectElement(target.el);
+    setStatus('圖片已更換。');
+  }else{
+    target.el.style.backgroundImage=`url("${src}")`;
+    if(!target.el.style.backgroundPosition) target.el.style.backgroundPosition='center center';
+    if(!target.el.style.backgroundSize) target.el.style.backgroundSize='cover';
+    target.el.style.backgroundRepeat='no-repeat';
+    selectElement(target.el);
+    setStatus('區塊背景圖片已更換。');
+  }
+
+  markDirty();
+  updateHandle();
+}
+
 async function setBackground(file){
   if(!file || !selected){ alert('請先點選要設定背景的區塊。'); return; }
   pushUndo(); const src=await prepareImageDataUrl(file);
@@ -1857,9 +1975,13 @@ $('#flowImageInput').addEventListener('change',async e=>{
   catch(err){ console.error(err); alert(`插入圖片區塊失敗：${err.message}`); }
   e.target.value='';
 });
-$('#btnReplaceImage').addEventListener('click',()=>$('#replaceImageInput').click());
+$('#btnReplaceImage').addEventListener('click',requestReplaceImage);
 $('#btnFindWixImage').addEventListener('click',findNextWixImage);
-$('#replaceImageInput').addEventListener('change',async e=>{ await replaceImage(e.target.files?.[0]); e.target.value=''; });
+$('#replaceImageInput').addEventListener('change',async e=>{
+  try{ await replaceImage(e.target.files?.[0]); }
+  catch(err){ console.error(err); alert(`更換圖片失敗：${err.message}`); }
+  finally{ e.target.value=''; }
+});
 $('#btnBackground').addEventListener('click',()=>$('#backgroundInput').click());
 $('#backgroundInput').addEventListener('change',async e=>{ await setBackground(e.target.files?.[0]); e.target.value=''; });
 
@@ -1942,7 +2064,7 @@ window.addEventListener('pagehide',()=>{
       $('#btnPromote').disabled=true;
     }
     await loadPage('index.html');
-    setStatus(`${BUILD} 已完成啟動。新增手機版獨立圖文排序與圖片完整顯示。`);
+    setStatus(`${BUILD} 已完成啟動。換圖片可自動辨識卡片內主圖或背景圖。`);
   }catch(err){
     console.error(err); setStatus(`啟動失敗：${err.message}`);
   }
