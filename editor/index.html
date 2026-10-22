@@ -92,7 +92,7 @@
 
   <div class="statusbar">
     <span id="status">編輯器啟動中…</span>
-    <span class="build-badge">V10.13.1</span>
+    <span class="build-badge">V10.14</span>
       <span class="status-note">修改會自動暫存；「儲存草稿」會建立可恢復版本。重新載入官網不再刪除備份。</span>
   </div>
 
@@ -321,6 +321,38 @@
             一鍵套用 8 頁建議 SEO
           </button>
           <p class="inspector-help small">所有修改只先存草稿；正式網站仍需經「發布測試版 → 檢查 → 套用正式網站」。</p>
+        </div>
+      </details>
+
+
+      <details class="inspector-fold analytics-fold" id="analyticsFold">
+        <summary>網站流量／Google Analytics</summary>
+        <div class="fold-body">
+          <p class="inspector-help">建立 GA4 後，只要把「G-」開頭的評估 ID 貼在這裡，一次套用到 8 個正式頁面。</p>
+
+          <label>GA4 評估 ID
+            <input id="gaMeasurementId" type="text" autocomplete="off" spellcheck="false" placeholder="G-XXXXXXXXXX">
+          </label>
+          <div id="gaStatus" class="analytics-status">尚未偵測到 Google Analytics</div>
+
+          <div class="analytics-actions">
+            <button id="btnApplyGaAll" type="button" class="primary">套用到 8 個頁面</button>
+            <button id="btnRemoveGaAll" type="button">移除全站追蹤</button>
+          </div>
+
+          <div class="analytics-links">
+            <button id="btnOpenAnalytics" type="button">開啟 Google Analytics ↗</button>
+            <button id="btnOpenSearchConsole" type="button">開啟 Search Console ↗</button>
+          </div>
+
+          <div class="analytics-note">
+            <strong>建議 GA4 設定</strong>
+            <span>網站資料串流：<b>https://tsrcbc.github.io/</b></span>
+            <span>加強型評估：<b>開啟</b></span>
+            <span>正式發布後，可到「即時」報表確認有沒有收到自己的瀏覽。</span>
+          </div>
+
+          <p class="inspector-help small">這裡只修改草稿。仍需「① 發布測試版 → ② 檢查 → ③ 套用正式網站」，GA4 才會真正開始收正式站流量。</p>
         </div>
       </details>
 

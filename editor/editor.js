@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const BUILD = 'V10.13.1 MOBILE STORY FIX';
+const BUILD = 'V10.14 ANALYTICS';
 const FONT_URL = 'https://fonts.googleapis.com/css2?family=Iansui&family=Klee+One:wght@400;600&family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&family=Noto+Serif+TC:wght@400;500;600;700;800;900&family=Yuji+Syuku&family=Zen+Kurenaido&display=swap';
 
 /* ---------- login ---------- */
@@ -125,6 +125,8 @@ const GENERIC_SEO_TITLES = new Set([
 ]);
 const GENERIC_SEO_DESCRIPTION = 'CHINON 奇農｜黃金 GABA 桑茶';
 const PAGE_ID_META = 'chinon-page-id';
+const GA_PREF_KEY = 'chinon-ga4-measurement-id';
+const GA_TAG_ATTR = 'data-chinon-ga4';
 
 const SITE_FILES = new Set(SITE_PAGES.map(x=>x.file));
 const iframe = $('#siteFrame');
@@ -948,6 +950,175 @@ function syncBlockToolUi(){
     const b=$('#'+id);
     if(b) b.disabled=!pair;
   });
+}
+
+
+/* ---------- Google Analytics 4 ---------- */
+function normalizeGaId(value){
+  return String(value||'').trim().toUpperCase();
+}
+function isValidGaId(value){
+  return /^G-[A-Z0-9]{5,20}$/.test(normalizeGaId(value));
+}
+function gaIdFromDoc(doc){
+  if(!doc?.head) return '';
+  const owned=doc.head.querySelector(`script[${GA_TAG_ATTR}="loader"]`);
+  const src=owned?.getAttribute('src')||'';
+  let m=src.match(/[?&]id=(G-[A-Z0-9]+)/i);
+  if(m) return normalizeGaId(m[1]);
+
+  const anyLoader=[...doc.head.querySelectorAll('script[src*="googletagmanager.com/gtag/js"]')]
+    .map(s=>s.getAttribute('src')||'')
+    .find(x=>/[?&]id=G-/i.test(x));
+  m=String(anyLoader||'').match(/[?&]id=(G-[A-Z0-9]+)/i);
+  if(m) return normalizeGaId(m[1]);
+
+  for(const s of doc.head.querySelectorAll('script:not([src])')){
+    const text=s.textContent||'';
+    m=text.match(/gtag\s*\(\s*['\"]config['\"]\s*,\s*['\"](G-[A-Z0-9]+)['\"]/i);
+    if(m) return normalizeGaId(m[1]);
+  }
+  return '';
+}
+function removeGaFromDocument(doc){
+  if(!doc?.head) return false;
+  let changed=false;
+  doc.head.querySelectorAll(`script[${GA_TAG_ATTR}]`).forEach(el=>{el.remove(); changed=true;});
+  doc.head.querySelectorAll('script[src*="googletagmanager.com/gtag/js"]').forEach(el=>{
+    if(/[?&]id=G-/i.test(el.getAttribute('src')||'')){ el.remove(); changed=true; }
+  });
+  doc.head.querySelectorAll('script:not([src])').forEach(el=>{
+    const t=el.textContent||'';
+    if(/window\.dataLayer/i.test(t) && /gtag\s*\(\s*['\"]config['\"]\s*,\s*['\"]G-/i.test(t)){
+      el.remove(); changed=true;
+    }
+  });
+  return changed;
+}
+function applyGaToDocument(doc,id){
+  if(!doc?.head) return;
+  id=normalizeGaId(id);
+  if(!isValidGaId(id)) throw new Error('GA4 評估 ID 格式不正確，應該像 G-XXXXXXXXXX。');
+  removeGaFromDocument(doc);
+
+  const loader=doc.createElement('script');
+  loader.async=true;
+  loader.src=`https://www.googletagmanager.com/gtag/js?id=${id}`;
+  loader.setAttribute(GA_TAG_ATTR,'loader');
+
+  const config=doc.createElement('script');
+  config.setAttribute(GA_TAG_ATTR,'config');
+  config.textContent=`\nwindow.dataLayer = window.dataLayer || [];\nfunction gtag(){dataLayer.push(arguments);}\ngtag('js', new Date());\ngtag('config', '${id}');\n`;
+
+  const charset=doc.head.querySelector('meta[charset]');
+  const viewport=doc.head.querySelector('meta[name="viewport"]');
+  const insertAfter=viewport||charset;
+  if(insertAfter?.nextSibling){
+    doc.head.insertBefore(config,insertAfter.nextSibling);
+    doc.head.insertBefore(loader,config);
+  }else{
+    doc.head.prepend(config);
+    doc.head.prepend(loader);
+  }
+}
+function syncAnalyticsControls(){
+  const input=$('#gaMeasurementId');
+  const status=$('#gaStatus');
+  if(!input||!status) return;
+  let id='';
+  try{id=gaIdFromDoc(iframe.contentDocument)||'';}catch{}
+  if(!id) id=normalizeGaId(localStorage.getItem(GA_PREF_KEY)||'');
+  input.value=id;
+  status.textContent=id ? `目前偵測到：${id}` : '尚未偵測到 Google Analytics';
+  status.classList.toggle('ok',!!id);
+}
+async function applyGaAllPages(){
+  const id=normalizeGaId($('#gaMeasurementId')?.value);
+  if(!isValidGaId(id)){
+    alert('請先貼上正確的 GA4 評估 ID，例如 G-PSW1MY7HB4。');
+    return;
+  }
+  const btn=$('#btnApplyGaAll');
+  if(btn) btn.disabled=true;
+  try{
+    if(hasLoadedPage) captureCurrentPage();
+    await persistDraftMap({silent:true});
+    const settings=readStoredRepoSettings();
+    let changed=0;
+
+    for(const page of SITE_PAGES){
+      const existing=pageDrafts.get(page.file);
+      let source=existing?.html||'';
+      let repo=null;
+      if(!source){
+        repo=await fetchRepoFileState(page.file,settings);
+        source=repo.text;
+      }else if(!existing?.baseHash || !existing?.baseRepoSha){
+        try{repo=await fetchRepoFileState(page.file,settings);}catch{}
+      }
+      assertSafeHtml(source,page.name);
+      const doc=new DOMParser().parseFromString(source,'text/html');
+      ensurePageId(doc,page.file);
+      const before=gaIdFromDoc(doc);
+      applyGaToDocument(doc,id);
+      const out=serializeDoc(doc);
+      const baseHash=existing?.baseHash || (repo?.text ? await hashText(repo.text) : await hashText(source));
+      const baseRepoSha=existing?.baseRepoSha || repo?.sha || '';
+      pageDrafts.set(page.file,{html:out,baseHash,baseRepoSha,dirty:true});
+      if(before!==id) changed++;
+    }
+    localStorage.setItem(GA_PREF_KEY,id);
+    await persistDraftMap({silent:true});
+    if(currentFile){
+      const cur=pageDrafts.get(currentFile);
+      if(cur?.html){
+        currentDirty=true;
+        await navigateFrame({srcdoc:toEditorSrcdoc(cur.html)});
+      }
+    }
+    $('#btnPromote').disabled=true;
+    latestPreviewCommit='';
+    syncAnalyticsControls();
+    alert(`Google Analytics ${id} 已套用到 8 個頁面草稿。\n\n正式網站尚未修改。\n請照原流程發布測試版並確認後，再套用正式網站。`);
+  }finally{
+    if(btn) btn.disabled=false;
+  }
+}
+async function removeGaAllPages(){
+  if(!confirm('確定要從 8 個頁面草稿移除 Google Analytics 追蹤嗎？')) return;
+  const btn=$('#btnRemoveGaAll');
+  if(btn) btn.disabled=true;
+  try{
+    if(hasLoadedPage) captureCurrentPage();
+    await persistDraftMap({silent:true});
+    const settings=readStoredRepoSettings();
+    for(const page of SITE_PAGES){
+      const existing=pageDrafts.get(page.file);
+      let source=existing?.html||'';
+      let repo=null;
+      if(!source){ repo=await fetchRepoFileState(page.file,settings); source=repo.text; }
+      else if(!existing?.baseHash || !existing?.baseRepoSha){ try{repo=await fetchRepoFileState(page.file,settings);}catch{} }
+      assertSafeHtml(source,page.name);
+      const doc=new DOMParser().parseFromString(source,'text/html');
+      ensurePageId(doc,page.file);
+      removeGaFromDocument(doc);
+      const baseHash=existing?.baseHash || (repo?.text ? await hashText(repo.text) : await hashText(source));
+      const baseRepoSha=existing?.baseRepoSha || repo?.sha || '';
+      pageDrafts.set(page.file,{html:serializeDoc(doc),baseHash,baseRepoSha,dirty:true});
+    }
+    localStorage.removeItem(GA_PREF_KEY);
+    await persistDraftMap({silent:true});
+    if(currentFile){
+      const cur=pageDrafts.get(currentFile);
+      if(cur?.html){ currentDirty=true; await navigateFrame({srcdoc:toEditorSrcdoc(cur.html)}); }
+    }
+    $('#btnPromote').disabled=true;
+    latestPreviewCommit='';
+    syncAnalyticsControls();
+    setStatus('已從 8 個頁面草稿移除 Google Analytics。正式網站尚未變更。');
+  }finally{
+    if(btn) btn.disabled=false;
+  }
 }
 
 /* ---------- SEO / Google search ---------- */
@@ -3044,6 +3215,7 @@ iframe.addEventListener('load',()=>{
     if(currentFile) ensurePageId(doc,currentFile);
     $('#pageSelect').value=currentFile||'index.html';
     syncSeoControls();
+    syncAnalyticsControls();
     if(currentDirty){
       setStatus(`${SITE_PAGES.find(x=>x.file===currentFile)?.name||currentFile} 已載入本機草稿；重新整理後內容已保留。`);
     }else{
@@ -3137,6 +3309,19 @@ $('#seoDescription').addEventListener('input',updateSeoPreview);
 $('#btnSaveSeoCurrent').addEventListener('click',saveSeoCurrent);
 $('#btnSeoRecommended').addEventListener('click',applyRecommendedSeoCurrent);
 $('#btnSeoAllRecommended').addEventListener('click',()=>applyRecommendedSeoAll({onlyGeneric:false,silent:false}));
+$('#gaMeasurementId').addEventListener('input',e=>{
+  const id=normalizeGaId(e.target.value);
+  e.target.value=id;
+  const status=$('#gaStatus');
+  if(status){
+    status.textContent=isValidGaId(id) ? `準備套用：${id}` : (id ? '評估 ID 格式尚未完整' : '尚未偵測到 Google Analytics');
+    status.classList.toggle('ok',isValidGaId(id));
+  }
+});
+$('#btnApplyGaAll').addEventListener('click',applyGaAllPages);
+$('#btnRemoveGaAll').addEventListener('click',removeGaAllPages);
+$('#btnOpenAnalytics').addEventListener('click',()=>window.open('https://analytics.google.com/','_blank','noopener'));
+$('#btnOpenSearchConsole').addEventListener('click',()=>window.open('https://search.google.com/search-console','_blank','noopener'));
 $('#mobileOrder').addEventListener('change',e=>setMobileOrder(e.target.value));
 $('#mobileImageFit').addEventListener('change',e=>setMobileImageFit(e.target.value));
 $('#btnMobileRecommended').addEventListener('click',applyRecommendedMobileLayout);
