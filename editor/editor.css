@@ -291,3 +291,88 @@ dialog::backdrop{background:rgba(0,0,0,.68)}
   color:#ffe8a0!important;
 }
 .speed-btn:hover{background:#4a3a17!important}
+
+
+/* V10.12 SEO SEARCH */
+.seo-fold input[type="text"],
+.seo-fold textarea{
+  width:100%;
+  box-sizing:border-box;
+  border:1px solid #3a4552;
+  border-radius:7px;
+  background:#202936;
+  color:#eef4f8;
+  padding:9px 10px;
+  font:inherit;
+  line-height:1.55;
+}
+.seo-fold textarea{
+  resize:vertical;
+  min-height:92px;
+}
+.seo-counter{
+  margin:-5px 0 8px;
+  text-align:right;
+  color:#8391a0;
+  font-size:10px;
+}
+.seo-focus{
+  margin:10px 0;
+  padding:9px 10px;
+  border:1px solid #34473d;
+  border-radius:8px;
+  background:#17231d;
+  color:#b9d6c5;
+  font-size:11px;
+  line-height:1.6;
+}
+.seo-focus strong{
+  display:block;
+  margin-bottom:3px;
+  color:#d9f0e1;
+}
+.seo-search-preview{
+  margin:10px 0;
+  padding:12px;
+  border-radius:10px;
+  background:#fff;
+  color:#202124;
+  font-family:Arial,"Noto Sans TC",sans-serif;
+}
+.seo-preview-site{
+  font-size:12px;
+  color:#202124;
+  margin-bottom:2px;
+}
+.seo-preview-url{
+  font-size:11px;
+  color:#4d5156;
+  margin-bottom:4px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.seo-preview-title{
+  color:#1a0dab;
+  font-size:17px;
+  line-height:1.25;
+  margin-bottom:5px;
+}
+.seo-preview-description{
+  color:#4d5156;
+  font-size:12px;
+  line-height:1.45;
+}
+.seo-actions{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:7px;
+  margin-top:8px;
+}
+.seo-actions button{width:100%}
+.seo-all-btn{
+  margin-top:8px;
+  border-color:#5b704d!important;
+  background:#263b22!important;
+  color:#dcf1d5!important;
+}

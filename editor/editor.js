@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const BUILD = 'V10.11.2 PAGE SYNC';
+const BUILD = 'V10.12 SEO SEARCH';
 const FONT_URL = 'https://fonts.googleapis.com/css2?family=Iansui&family=Klee+One:wght@400;600&family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&family=Noto+Serif+TC:wght@400;500;600;700;800;900&family=Yuji+Syuku&family=Zen+Kurenaido&display=swap';
 
 /* ---------- login ---------- */
@@ -71,6 +71,61 @@ const SITE_PAGES = [
   {file:'info.html',name:'相關資訊'},
   {file:'contact.html',name:'聯繫我們'}
 ];
+const SEO_PRESETS = {
+  'index.html':{
+    title:'奇農 CHINON｜GABA桑茶・桑葉茶・秘魯黃金瑪卡',
+    description:'奇農 CHINON 專注台灣 GABA 桑茶、桑葉茶製作與秘魯黃金瑪卡，從原料挑選、製茶工藝到品質檢驗，提供天然純粹的日常健康選擇。',
+    focus:'奇農、CHINON、GABA桑茶、GABA桑葉茶、桑葉茶、秘魯黃金瑪卡'
+  },
+  'about.html':{
+    title:'關於奇農 CHINON｜天然桑葉茶品牌',
+    description:'認識奇農 CHINON 品牌故事。從土地、原料到製茶工藝，持續以天然桑葉、品質把關與安心檢驗，打造適合融入日常生活的茶品。',
+    focus:'奇農、CHINON、桑葉茶品牌、台灣桑葉茶、天然茶品'
+  },
+  'craft.html':{
+    title:'桑葉茶製程｜GABA桑茶採摘・發酵・烘焙｜奇農',
+    description:'從桑葉原料挑選、人工採摘到發酵與烘焙，認識奇農 GABA 桑茶的製茶流程、原料要求與品質堅持。',
+    focus:'桑葉茶製程、GABA桑茶製程、桑葉採摘、桑葉發酵、桑葉烘焙'
+  },
+  'gaba.html':{
+    title:'GABA桑茶｜台灣桑葉茶・自然回甘｜奇農 CHINON',
+    description:'奇農 GABA 桑茶嚴選台灣桑葉，結合特殊發酵與烘焙製程，呈現溫潤回甘的桑葉茶風味，了解產品特色、製茶方式與相關資訊。',
+    focus:'GABA桑茶、GABA桑葉茶、台灣桑葉茶、桑茶、桑葉茶'
+  },
+  'maca.html':{
+    title:'秘魯黃金瑪卡｜產品與產地資訊｜奇農 CHINON',
+    description:'了解奇農秘魯黃金瑪卡產品資訊、原料來源、產地證明與相關檢驗資料，整理產品特色與日常食用資訊。',
+    focus:'秘魯瑪卡、黃金瑪卡、秘魯黃金瑪卡、瑪卡產品、瑪卡產地'
+  },
+  'certificates.html':{
+    title:'奇農產品檢測證書｜SGS與品質檢驗資料',
+    description:'查看奇農產品相關 SGS 檢驗、農藥檢測、秘魯瑪卡產地與品質證明，集中了解產品安全與品質資訊。',
+    focus:'奇農檢測證書、SGS檢驗、桑葉茶檢測、農藥檢測、產品品質'
+  },
+  'info.html':{
+    title:'GABA桑茶與桑葉茶知識｜奇農 CHINON',
+    description:'整理 GABA 桑茶、桑葉茶製程、沖泡方式與相關產品知識，快速了解奇農 CHINON 的茶品特色與日常飲用資訊。',
+    focus:'GABA是什麼、桑葉茶知識、桑葉茶沖泡、GABA桑茶知識、桑茶資訊'
+  },
+  'contact.html':{
+    title:'聯繫奇農 CHINON｜產品與合作諮詢',
+    description:'聯繫奇農 CHINON，洽詢 GABA 桑茶、秘魯黃金瑪卡、產品購買與合作資訊，提供電話、Email 與苗栗營運分處聯絡方式。',
+    focus:'聯繫奇農、奇農電話、奇農Email、GABA桑茶購買、產品合作'
+  }
+};
+const GENERIC_SEO_TITLES = new Set([
+  '首頁｜奇農 CHINON',
+  '關於奇農｜CHINON',
+  '製茶堅持｜CHINON',
+  'GABA 桑茶｜CHINON',
+  '秘魯黃金瑪卡｜CHINON',
+  '檢測證書｜CHINON',
+  '相關資訊｜CHINON',
+  '聯繫我們｜CHINON'
+]);
+const GENERIC_SEO_DESCRIPTION = 'CHINON 奇農｜黃金 GABA 桑茶';
+const PAGE_ID_META = 'chinon-page-id';
+
 const SITE_FILES = new Set(SITE_PAGES.map(x=>x.file));
 const iframe = $('#siteFrame');
 const frameBox = $('#canvasFrame');
@@ -143,7 +198,27 @@ function titleFromHtml(html){
 function currentCanvasTitle(){
   try{return iframe.contentDocument?.title?.trim()||''}catch{return ''}
 }
-function pageIdentityMatches(expectedTitle,html){
+function pageIdFromDoc(doc){
+  return doc?.head?.querySelector(`meta[name="${PAGE_ID_META}"]`)?.getAttribute('content')||'';
+}
+function pageIdFromHtml(html){
+  try{
+    return pageIdFromDoc(new DOMParser().parseFromString(String(html||''),'text/html'));
+  }catch{return ''}
+}
+function ensurePageId(doc,file){
+  if(!doc?.head || !file) return;
+  let meta=doc.head.querySelector(`meta[name="${PAGE_ID_META}"]`);
+  if(!meta){
+    meta=doc.createElement('meta');
+    meta.setAttribute('name',PAGE_ID_META);
+    doc.head.appendChild(meta);
+  }
+  meta.setAttribute('content',file);
+}
+function pageIdentityMatches(expectedTitle,html,file=''){
+  const pageId=pageIdFromHtml(html);
+  if(pageId && file) return pageId===file;
   const t=titleFromHtml(html);
   return !expectedTitle || !t || t===expectedTitle;
 }
@@ -330,12 +405,16 @@ function toEditorSrcdoc(html){
 function captureCurrentPage(){
   const doc=iframe.contentDocument;
   if(!doc?.documentElement || !currentFile) return;
+  const pageId=pageIdFromDoc(doc);
   const canvasTitle=(doc.title||'').trim();
-  if(currentExpectedTitle && canvasTitle && canvasTitle!==currentExpectedTitle){
-    console.warn('阻止錯頁草稿寫入', {currentFile,currentExpectedTitle,canvasTitle});
-    setStatus(`頁面同步保護：目前畫布是「${canvasTitle}」，不會誤存到 ${currentFile}。`);
+
+  if(pageId && pageId!==currentFile){
+    console.warn('阻止錯頁草稿寫入', {currentFile,pageId,canvasTitle});
+    setStatus(`頁面同步保護：目前畫布屬於 ${pageId}，不會誤存到 ${currentFile}。`);
     return;
   }
+
+  ensurePageId(doc,currentFile);
   const html=cleanDocumentHtml(doc);
   pageDrafts.set(currentFile,{
     html,
@@ -438,7 +517,7 @@ async function loadPage(file,{forceLive=false,skipCapture=false}={}){
 
     // If a historical race wrote another page into this page's draft slot,
     // preserve it in history and self-heal by loading the correct live page.
-    if(!forceLive && draft?.html && !pageIdentityMatches(currentExpectedTitle,draft.html)){
+    if(!forceLive && draft?.html && !pageIdentityMatches(currentExpectedTitle,draft.html,file)){
       await addDraftHistory(file,draft,{reason:'頁面錯置自動隔離',silent:true});
       console.warn('Wrong-page draft isolated', {
         file,
@@ -461,12 +540,19 @@ async function loadPage(file,{forceLive=false,skipCapture=false}={}){
       currentDirty=!!draft.dirty;
       currentBaseHash=draft.baseHash||currentBaseHash;
       currentBaseRepoSha=draft.baseRepoSha||currentBaseRepoSha;
+      const draftDoc=new DOMParser().parseFromString(draft.html,'text/html');
+      ensurePageId(draftDoc,file);
+      draft.html=serializeDoc(draftDoc);
+      pageDrafts.set(file,draft);
       await navigateFrame({srcdoc:toEditorSrcdoc(draft.html)});
     }else{
       currentDirty=false;
-      await navigateFrame({srcdoc:toEditorSrcdoc(live)});
+      const liveDoc=new DOMParser().parseFromString(live,'text/html');
+      ensurePageId(liveDoc,file);
+      const liveWithId=serializeDoc(liveDoc);
+      await navigateFrame({srcdoc:toEditorSrcdoc(liveWithId)});
       pageDrafts.set(file,{
-        html:live,
+        html:liveWithId,
         baseHash:currentBaseHash,
         baseRepoSha:currentBaseRepoSha||'',
         dirty:false
@@ -651,6 +737,201 @@ function applyStyle(prop,value){
 }
 function bindSelect(id,prop){ $('#'+id).addEventListener('change',e=>applyStyle(prop,e.target.value)); }
 
+
+
+/* ---------- SEO / Google search ---------- */
+function getMetaDescription(doc){
+  return doc?.head?.querySelector('meta[name="description"]')?.getAttribute('content')?.trim()||'';
+}
+function ensureMetaDescription(doc){
+  if(!doc?.head) return null;
+  let meta=doc.head.querySelector('meta[name="description"]');
+  if(!meta){
+    meta=doc.createElement('meta');
+    meta.setAttribute('name','description');
+    doc.head.appendChild(meta);
+  }
+  return meta;
+}
+function ensureRobotsIndex(doc){
+  if(!doc?.head) return;
+  let meta=doc.head.querySelector('meta[name="robots"]');
+  if(!meta){
+    meta=doc.createElement('meta');
+    meta.setAttribute('name','robots');
+    doc.head.appendChild(meta);
+  }
+  meta.setAttribute('content','index,follow');
+}
+function applySeoToDocument(doc,file,seo){
+  if(!doc?.head || !seo) return;
+  ensurePageId(doc,file);
+  doc.title=seo.title.trim();
+  ensureMetaDescription(doc)?.setAttribute('content',seo.description.trim());
+  ensureRobotsIndex(doc);
+}
+function pagePublicUrl(file=currentFile){
+  if(!file || file==='index.html') return 'https://tsrcbc.github.io/';
+  return `https://tsrcbc.github.io/${file}`;
+}
+function updateSeoPreview(){
+  const title=$('#seoTitle')?.value?.trim()||'';
+  const description=$('#seoDescription')?.value?.trim()||'';
+  if($('#seoTitleCount')) $('#seoTitleCount').textContent=String(title.length);
+  if($('#seoDescriptionCount')) $('#seoDescriptionCount').textContent=String(description.length);
+  if($('#seoPreviewTitle')) $('#seoPreviewTitle').textContent=title||'Google 搜尋標題';
+  if($('#seoPreviewDescription')) $('#seoPreviewDescription').textContent=description||'Google 搜尋說明';
+  if($('#seoPreviewUrl')) $('#seoPreviewUrl').textContent=pagePublicUrl(currentFile);
+}
+function syncSeoControls(){
+  const doc=iframe.contentDocument;
+  if(!doc?.head || !currentFile) return;
+  const preset=SEO_PRESETS[currentFile]||{};
+  $('#seoTitle').value=(doc.title||'').trim() || preset.title || '';
+  $('#seoDescription').value=getMetaDescription(doc) || preset.description || '';
+  $('#seoFocusKeywords').textContent=preset.focus||'—';
+  updateSeoPreview();
+}
+function fillRecommendedSeoFields(){
+  const preset=SEO_PRESETS[currentFile];
+  if(!preset) return;
+  $('#seoTitle').value=preset.title;
+  $('#seoDescription').value=preset.description;
+  $('#seoFocusKeywords').textContent=preset.focus||'—';
+  updateSeoPreview();
+}
+function saveSeoCurrent(){
+  const doc=iframe.contentDocument;
+  if(!doc?.head || !currentFile){
+    alert('目前頁面尚未載入完成。');
+    return;
+  }
+  const title=$('#seoTitle').value.trim();
+  const description=$('#seoDescription').value.trim();
+  if(!title){
+    alert('Google 搜尋標題不能空白。');
+    return;
+  }
+  if(!description){
+    alert('Google 搜尋說明不能空白。');
+    return;
+  }
+  pushUndo();
+  applySeoToDocument(doc,currentFile,{title,description});
+  currentExpectedTitle=title;
+  markDirty();
+  syncSeoControls();
+  setStatus(`${pageDisplayName(currentFile)} 的 Google 搜尋標題與說明已套用到草稿。`);
+}
+function applyRecommendedSeoCurrent(){
+  fillRecommendedSeoFields();
+  saveSeoCurrent();
+}
+function seoFieldIsGenericTitle(title){
+  return !title || GENERIC_SEO_TITLES.has(String(title).trim());
+}
+function seoFieldIsGenericDescription(desc){
+  const d=String(desc||'').trim();
+  return !d || d===GENERIC_SEO_DESCRIPTION;
+}
+async function applyRecommendedSeoAll({onlyGeneric=false,silent=false}={}){
+  const btn=$('#btnSeoAllRecommended');
+  if(btn) btn.disabled=true;
+
+  try{
+    if(hasLoadedPage) captureCurrentPage();
+    await persistDraftMap({silent:true});
+    const settings=readStoredRepoSettings();
+    let changedPages=0;
+
+    for(const page of SITE_PAGES){
+      const existing=pageDrafts.get(page.file);
+      let source=existing?.html||'';
+      let repo=null;
+
+      if(!source){
+        repo=await fetchRepoFileState(page.file,settings);
+        source=repo.text;
+      }else if(!existing?.baseHash || !existing?.baseRepoSha){
+        try{ repo=await fetchRepoFileState(page.file,settings); }catch{}
+      }
+
+      assertSafeHtml(source,page.name);
+      const doc=new DOMParser().parseFromString(source,'text/html');
+      ensurePageId(doc,page.file);
+
+      const preset=SEO_PRESETS[page.file];
+      const oldTitle=(doc.title||'').trim();
+      const oldDesc=getMetaDescription(doc);
+
+      let changed=false;
+      if(!onlyGeneric || seoFieldIsGenericTitle(oldTitle)){
+        if(oldTitle!==preset.title){
+          doc.title=preset.title;
+          changed=true;
+        }
+      }
+      if(!onlyGeneric || seoFieldIsGenericDescription(oldDesc)){
+        if(oldDesc!==preset.description){
+          ensureMetaDescription(doc)?.setAttribute('content',preset.description);
+          changed=true;
+        }
+      }
+
+      const robots=doc.head.querySelector('meta[name="robots"]')?.getAttribute('content')||'';
+      if(!/index/i.test(robots) || /noindex/i.test(robots)){
+        ensureRobotsIndex(doc);
+        changed=true;
+      }
+
+      const html=serializeDoc(doc);
+      const baseHash=existing?.baseHash || (repo?.text ? await hashText(repo.text) : await hashText(source));
+      const baseRepoSha=existing?.baseRepoSha || repo?.sha || '';
+
+      pageDrafts.set(page.file,{
+        html,
+        baseHash,
+        baseRepoSha,
+        dirty:changed || !!existing?.dirty
+      });
+
+      if(changed) changedPages++;
+    }
+
+    await persistDraftMap({silent:true});
+
+    if(currentFile){
+      const current=pageDrafts.get(currentFile);
+      if(current?.html){
+        currentDirty=!!current.dirty;
+        await navigateFrame({srcdoc:toEditorSrcdoc(current.html)});
+      }
+    }
+
+    $('#btnPromote').disabled=true;
+    latestPreviewCommit='';
+
+    if(!silent){
+      alert(
+        `SEO 建議已套用到 ${changedPages} 個頁面草稿。\n\n`+
+        `正式網站尚未修改。\n`+
+        `請照原流程：① 發布測試版 → ② 檢查 → ③ 套用正式網站。`
+      );
+    }
+    return changedPages;
+  }finally{
+    if(btn) btn.disabled=false;
+  }
+}
+async function seedRecommendedSeoDefaults(){
+  try{
+    const changed=await applyRecommendedSeoAll({onlyGeneric:true,silent:true});
+    return changed;
+  }catch(err){
+    console.warn('SEO 預設值自動填入失敗',err);
+    return 0;
+  }
+}
 
 /* ---------- responsive mobile layout ---------- */
 function ensureResponsiveStyle(doc=iframe.contentDocument){
@@ -2510,12 +2791,15 @@ iframe.addEventListener('load',()=>{
     selected=null; $('#selectedLabel').textContent='尚未選取';
 
     const canvasTitle=(doc?.title||'').trim();
-    if(currentExpectedTitle && canvasTitle && canvasTitle!==currentExpectedTitle){
-      setStatus(`頁面同步警告：下拉選單是 ${currentFile}，但畫布目前是「${canvasTitle}」。系統不會把這頁誤存。`);
+    const canvasPageId=pageIdFromDoc(doc);
+    if(canvasPageId && currentFile && canvasPageId!==currentFile){
+      setStatus(`頁面同步警告：下拉選單是 ${currentFile}，但畫布實際屬於 ${canvasPageId}。系統不會把這頁誤存。`);
       return;
     }
 
+    if(currentFile) ensurePageId(doc,currentFile);
     $('#pageSelect').value=currentFile||'index.html';
+    syncSeoControls();
     if(currentDirty){
       setStatus(`${SITE_PAGES.find(x=>x.file===currentFile)?.name||currentFile} 已載入本機草稿；重新整理後內容已保留。`);
     }else{
@@ -2591,6 +2875,11 @@ $('#btnImgLeft').addEventListener('click',()=>alignImage('left'));
 $('#btnImgCenter').addEventListener('click',()=>alignImage('center'));
 $('#btnImgRight').addEventListener('click',()=>alignImage('right'));
 $('#btnApplyLink').addEventListener('click',applyLink);
+$('#seoTitle').addEventListener('input',updateSeoPreview);
+$('#seoDescription').addEventListener('input',updateSeoPreview);
+$('#btnSaveSeoCurrent').addEventListener('click',saveSeoCurrent);
+$('#btnSeoRecommended').addEventListener('click',applyRecommendedSeoCurrent);
+$('#btnSeoAllRecommended').addEventListener('click',()=>applyRecommendedSeoAll({onlyGeneric:false,silent:false}));
 $('#mobileOrder').addEventListener('change',e=>setMobileOrder(e.target.value));
 $('#mobileImageFit').addEventListener('change',e=>setMobileImageFit(e.target.value));
 $('#btnMobileRecommended').addEventListener('click',applyRecommendedMobileLayout);
@@ -2671,8 +2960,13 @@ window.addEventListener('pagehide',()=>{
       $('#btnOpenPreview').disabled=!ready;
       $('#btnPromote').disabled=true;
     }
+    const seoSeeded=await seedRecommendedSeoDefaults();
     await loadPage('index.html');
-    setStatus(`${BUILD} 已完成啟動。已修正頁面錯置、動畫預覽，並保留全站加速與宣傳影片功能。`);
+    setStatus(
+      seoSeeded
+        ? `${BUILD} 已完成啟動。已自動預填 ${seoSeeded} 個頁面的建議 SEO 到草稿。`
+        : `${BUILD} 已完成啟動。SEO／Google 搜尋設定已可直接編輯。`
+    );
   }catch(err){
     console.error(err); setStatus(`啟動失敗：${err.message}`);
   }
