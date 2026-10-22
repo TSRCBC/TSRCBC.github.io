@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const BUILD = 'V10.13 BLOCK LAYOUT';
+const BUILD = 'V10.13.1 MOBILE STORY FIX';
 const FONT_URL = 'https://fonts.googleapis.com/css2?family=Iansui&family=Klee+One:wght@400;600&family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&family=Noto+Serif+TC:wght@400;500;600;700;800;900&family=Yuji+Syuku&family=Zen+Kurenaido&display=swap';
 
 /* ---------- login ---------- */
@@ -1151,7 +1151,12 @@ function ensureResponsiveStyle(doc=iframe.contentDocument){
   if(!style){
     style=doc.createElement('style');
     style.id=RESPONSIVE_STYLE_ID;
-    style.textContent=`
+    doc.head.appendChild(style);
+  }
+
+  // Always refresh the editor-owned responsive CSS. Older drafts may already
+  // contain this style tag from a previous editor build.
+  style.textContent=`
 @media (max-width:680px){
   [${MOBILE_ORDER_ATTR}="text-first"] > [${MOBILE_ROLE_ATTR}="text"]{
     order:1!important;
@@ -1163,6 +1168,10 @@ function ensureResponsiveStyle(doc=iframe.contentDocument){
     grid-column:auto!important;
     grid-row:auto!important;
   }
+  [${MOBILE_ORDER_ATTR}="text-first"] > [${MOBILE_ROLE_ATTR}="tail"]{
+    order:3!important;
+    grid-row:auto!important;
+  }
   [${MOBILE_ORDER_ATTR}="image-first"] > [${MOBILE_ROLE_ATTR}="image"]{
     order:1!important;
     grid-column:auto!important;
@@ -1172,6 +1181,15 @@ function ensureResponsiveStyle(doc=iframe.contentDocument){
     order:2!important;
     grid-column:auto!important;
     grid-row:auto!important;
+  }
+  [${MOBILE_ORDER_ATTR}="image-first"] > [${MOBILE_ROLE_ATTR}="tail"]{
+    order:3!important;
+    grid-row:auto!important;
+  }
+
+  /* Homepage ABOUT CHINON is a 3-part layout: text / photo / value list. */
+  .story-grid[${MOBILE_ORDER_ATTR}] > [${MOBILE_ROLE_ATTR}="tail"]{
+    grid-column:1 / -1!important;
   }
 
   img[${MOBILE_FIT_ATTR}="contain"]{
@@ -1198,8 +1216,6 @@ function ensureResponsiveStyle(doc=iframe.contentDocument){
     object-fit:cover!important;
   }
 }`;
-    doc.head.appendChild(style);
-  }
   return style;
 }
 
@@ -1250,18 +1266,23 @@ function detectResponsivePair(container){
 function findResponsivePair(el=selected){
   if(!el) return null;
 
+  // V10.13.1: when "選取整個圖文區" selects the layout container itself,
+  // test that element first instead of starting from its parent.
+  const selfPair=detectResponsivePair(el);
+  if(selfPair) return selfPair;
+
   const known=el.closest?.(
-    '.editorial-grid,.craft-row,.split-story,.two-column-copy,.product-duo,.info-panel-grid,.contact-grid'
+    '.story-grid,.editorial-grid,.craft-row,.split-story,.two-column-copy,.product-duo,.info-panel-grid,.contact-grid'
   );
   if(known){
     const pair=detectResponsivePair(known);
     if(pair) return pair;
   }
 
-  // Fallback: walk up a few levels and find a two-column-like parent
+  // Fallback: walk up a few levels and find a two/three-column-like parent
   let p=el.parentElement;
   let depth=0;
-  while(p && depth<5 && p!==iframe.contentDocument?.body){
+  while(p && depth<6 && p!==iframe.contentDocument?.body){
     const pair=detectResponsivePair(p);
     if(pair) return pair;
     p=p.parentElement;
@@ -1272,8 +1293,20 @@ function findResponsivePair(el=selected){
 
 function tagResponsivePair(pair){
   if(!pair) return;
+  const children=[...pair.container.children].filter(ch=>ch.id!==HANDLE_ID);
+  for(const child of children){
+    child.removeAttribute(MOBILE_ROLE_ATTR);
+  }
   pair.imageChild.setAttribute(MOBILE_ROLE_ATTR,'image');
   pair.textChild.setAttribute(MOBILE_ROLE_ATTR,'text');
+
+  // Preserve additional content after the main text+image pair. On the homepage
+  // this is the four-value list, which should stay after both on mobile.
+  for(const child of children){
+    if(child!==pair.imageChild && child!==pair.textChild){
+      child.setAttribute(MOBILE_ROLE_ATTR,'tail');
+    }
+  }
 }
 
 function currentResponsiveImage(){
@@ -1329,7 +1362,7 @@ function setMobileOrder(value,{skipUndo=false,skipDirty=false}={}){
   syncMobileControls();
   updateHandle();
 
-  if(value==='text-first') setStatus('手機版已設定：文字在上、圖片在下。桌機版不變。');
+  if(value==='text-first') setStatus(pair.container.classList?.contains('story-grid') ? '首頁手機版已設定：關於奇農文字 → 茶園圖片 → 四大理念。桌機版不變。' : '手機版已設定：文字在上、圖片在下。桌機版不變。');
   else if(value==='image-first') setStatus('手機版已設定：圖片在上、文字在下。桌機版不變。');
   else setStatus('手機版圖文順序已恢復為跟隨原本排版。');
   return true;
@@ -3189,7 +3222,7 @@ window.addEventListener('pagehide',()=>{
     setStatus(
       seoSeeded
         ? `${BUILD} 已完成啟動。已自動預填 ${seoSeeded} 個頁面的建議 SEO 到草稿。`
-        : `${BUILD} 已完成啟動。已加入整區選取、區塊上下移動與手機圖文快速排序。`
+        : `${BUILD} 已完成啟動。已修正首頁「關於奇農」手機排序，並保留區塊工具與 SEO。`
     );
   }catch(err){
     console.error(err); setStatus(`啟動失敗：${err.message}`);
