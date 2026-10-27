@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>CHINON 視覺網站編輯器</title>
+  <link rel="stylesheet" href="editor.css?v=1160">
+</head>
+<body class="auth-locked">
+  <div id="loginGate" class="login-gate">
+    <div class="login-orb orb-a"></div>
+    <div class="login-orb orb-b"></div>
+    <section class="login-card">
+      <div class="login-logo">C</div>
+      <div class="login-eyebrow">CHINON PRIVATE CONSOLE</div>
+      <h1>網站管理後台</h1>
+      <p>驗證管理者後進入視覺編輯器</p>
+      <form id="loginForm" autocomplete="off" novalidate>
+        <label>帳號<input id="loginUser" type="text" value="luke" autocomplete="off" autocapitalize="none" spellcheck="false" inputmode="text" placeholder="管理帳號"><span class="login-hint">管理帳號已預填為 luke，可直接輸入密碼。</span></label>
+        <label>密碼
+          <div class="password-wrap">
+            <input id="loginPass" type="password" autocomplete="new-password" autocapitalize="none" spellcheck="false" placeholder="管理密碼">
+            <button id="togglePassword" type="button">顯示</button>
+          </div>
+        </label>
+        <div id="loginError" class="login-error"></div>
+        <button class="login-submit" type="submit"><span>進入管理後台</span><span>→</span></button>
+      </form>
+    </section>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <strong>CHINON 編輯器 <span id="buildLabel">V10.16 MOBILE PERFORMANCE</span></strong>
+      <span>同源畫布・先測試版・確認後再套正式站</span>
+    </div>
+
+    <div class="toolbar">
+      <select id="pageSelect" title="頁面">
+        <option value="index.html">首頁</option>
+        <option value="about.html">關於奇農</option>
+        <option value="craft.html">製茶堅持</option>
+        <option value="gaba.html">GABA桑茶</option>
+        <option value="maca.html">秘魯瑪卡</option>
+        <option value="certificates.html">檢測證書</option>
+        <option value="info.html">相關資訊</option>
+        <option value="contact.html">聯繫我們</option>
+      </select>
+
+      <button id="btnAddImage">＋一般圖片</button>
+      <button id="btnFlowImageAbove" class="accent" title="選一個標題或區塊，將圖片插入整個區塊上方">＋圖片區塊 ↑</button>
+      <button id="btnFlowImageBelow" class="accent" title="選一個標題或區塊，將圖片插入整個區塊下方">＋圖片區塊 ↓</button>
+      <button id="btnAddVideo" class="accent" title="插入 YouTube 宣傳影片；預設放首頁主視覺下方">＋宣傳影片</button>
+      <button id="btnReplaceImage" title="點圖片或整張卡片都可以；會自動找主圖">換圖片（自動找主圖）</button>
+      <button id="btnFindWixImage" title="跳到本頁下一張仍使用 Wix 網址的圖片">找WIX圖片</button>
+      <button id="btnBackground">背景圖</button>
+      <button id="btnFloat">✥ 自由擺放</button>
+      <button id="btnUnfloat">回到排版</button>
+      <button id="btnDeleteAdded">刪除圖片／新增物件</button>
+      <button id="btnSelectParent" class="block-tool" title="往上一層選取目前物件的父層">選取父層</button>
+      <button id="btnSelectWholeBlock" class="block-tool accent" title="自動選取目前所在的完整圖文／內容區塊">選取整個區塊</button>
+      <button id="btnMoveBlockUp" class="block-tool" title="將目前區塊往前移一格">區塊上移</button>
+      <button id="btnMoveBlockDown" class="block-tool" title="將目前區塊往後移一格">區塊下移</button>
+
+      <button id="btnImgLeft">圖片靠左</button>
+      <button id="btnImgCenter" class="accent">圖片置中</button>
+      <button id="btnImgRight">圖片靠右</button>
+
+      <button id="btnUndo">↶ Undo</button>
+      <button id="btnRedo">↷ Redo</button>
+      <button id="btnSave">儲存草稿</button>
+      <button id="btnDraftHistory">草稿版本</button>
+      <button id="btnSelfCheck">系統檢查</button>
+      <button id="btnOptimizeSite" class="speed-btn" title="壓縮全站大型圖片並套用載入最佳化">⚡ 全站加速</button>
+      <button id="btnReload">重新載入官網</button>
+    </div>
+
+    <div class="publishbar">
+      <button id="btnPreviewPublish" class="preview-btn">① 發布測試版</button>
+      <button id="btnCheckPreview" disabled>檢查測試版部署</button>
+      <button id="btnOpenPreview" disabled>② 開啟測試版</button>
+      <button id="btnPromote" class="live-btn" disabled>③ 套用正式網站</button>
+    </div>
+
+    <div class="devices">
+      <button data-width="1440" class="active">桌機</button>
+      <button data-width="820">平板</button>
+      <button data-width="390">手機</button>
+    </div>
+  </header>
+
+  <div class="statusbar">
+    <span id="status">編輯器啟動中…</span>
+    <span class="build-badge">V10.16</span>
+      <span class="status-note">修改會自動暫存；「儲存草稿」會建立可恢復版本。重新載入官網不再刪除備份。</span>
+  </div>
+
+  <main class="workspace">
+    <section class="canvas-panel">
+      <div id="canvasFrame" class="canvas-frame" data-width="1440">
+        <iframe id="siteFrame" title="CHINON 網站即時畫布"></iframe>
+      </div>
+    </section>
+
+    <aside class="inspector">
+      <div class="inspector-title">
+        <strong>選取物件</strong>
+        <span id="selectedLabel">尚未選取</span>
+      </div>
+      <section>
+        <h3>文字</h3>
+        <label>字型
+          <select id="fontFamily">
+            <option value="">不變更</option>
+            <option value='"Noto Sans TC", sans-serif'>思源黑體</option>
+            <option value='"Noto Serif TC", serif'>思源宋體</option>
+            <option value='"LXGW WenKai TC", serif'>霞鶩文楷</option>
+            <option value='"Iansui", cursive'>芫荽體</option>
+            <option value='"Klee One", cursive'>Klee 手寫體</option>
+            <option value='"Zen Kurenaido", cursive'>Zen 手寫體</option>
+            <option value='"Yuji Syuku", serif'>Yuji 書寫體</option>
+          </select>
+        </label>
+        <label>字體大小
+          <select id="fontSize">
+            <option value="">不變更</option>
+            <option>12px</option><option>14px</option><option>16px</option><option>18px</option>
+            <option>20px</option><option>22px</option><option>24px</option><option>28px</option>
+            <option>32px</option><option>36px</option><option>40px</option><option>48px</option>
+            <option>56px</option><option>64px</option><option>72px</option><option>80px</option>
+            <option>96px</option><option>120px</option>
+          </select>
+        </label>
+        <label>粗細
+          <select id="fontWeight">
+            <option value="">不變更</option>
+            <option value="300">300｜細</option>
+            <option value="400">400｜一般</option>
+            <option value="500">500｜中等</option>
+            <option value="600">600｜半粗</option>
+            <option value="700">700｜粗體</option>
+            <option value="800">800｜很粗</option>
+            <option value="900">900｜最粗</option>
+          </select>
+        </label>
+        <label>對齊
+          <select id="textAlign">
+            <option value="">不變更</option>
+            <option value="left">靠左</option>
+            <option value="center">置中</option>
+            <option value="right">靠右</option>
+            <option value="justify">左右對齊</option>
+          </select>
+        </label>
+        <label>行高
+          <select id="lineHeight">
+            <option value="">不變更</option>
+            <option value="1">1.0</option><option value="1.2">1.2</option><option value="1.4">1.4</option>
+            <option value="1.6">1.6</option><option value="1.8">1.8</option><option value="2">2.0</option>
+          </select>
+        </label>
+        <label>字距
+          <select id="letterSpacing">
+            <option value="">不變更</option>
+            <option value="-2px">-2 px</option><option value="-1px">-1 px</option><option value="0px">0</option>
+            <option value="1px">1 px</option><option value="2px">2 px</option><option value="4px">4 px</option>
+            <option value="6px">6 px</option><option value="8px">8 px</option>
+          </select>
+        </label>
+        <label>文字顏色 <input id="textColor" type="color" value="#222222"></label>
+        <label>文字陰影
+          <select id="textShadow">
+            <option value="">不變更</option>
+            <option value="none">無</option>
+            <option value="0 2px 4px rgba(0,0,0,.2)">柔和陰影</option>
+            <option value="0 4px 10px rgba(0,0,0,.3)">明顯陰影</option>
+          </select>
+        </label>
+      </section>
+
+      <section>
+        <h3>尺寸／間距</h3>
+        <label>寬度
+          <select id="widthCtl">
+            <option value="">不變更</option>
+            <option value="auto">自動</option><option value="25%">25%</option><option value="33.333%">1/3</option>
+            <option value="50%">50%</option><option value="66.667%">2/3</option><option value="75%">75%</option>
+            <option value="100%">100%</option><option value="240px">240 px</option><option value="320px">320 px</option>
+            <option value="480px">480 px</option><option value="640px">640 px</option>
+          </select>
+        </label>
+        <label>上外距
+          <select id="marginTop"><option value="">不變更</option><option value="0">0</option><option value="8px">8 px</option><option value="16px">16 px</option><option value="24px">24 px</option><option value="40px">40 px</option><option value="64px">64 px</option></select>
+        </label>
+        <label>下外距
+          <select id="marginBottom"><option value="">不變更</option><option value="0">0</option><option value="8px">8 px</option><option value="16px">16 px</option><option value="24px">24 px</option><option value="40px">40 px</option><option value="64px">64 px</option></select>
+        </label>
+        <label>上內距
+          <select id="paddingTop"><option value="">不變更</option><option value="0">0</option><option value="8px">8 px</option><option value="16px">16 px</option><option value="24px">24 px</option><option value="40px">40 px</option><option value="64px">64 px</option></select>
+        </label>
+        <label>下內距
+          <select id="paddingBottom"><option value="">不變更</option><option value="0">0</option><option value="8px">8 px</option><option value="16px">16 px</option><option value="24px">24 px</option><option value="40px">40 px</option><option value="64px">64 px</option></select>
+        </label>
+      </section>
+
+      <section>
+        <h3>圖片／背景</h3>
+        <label>圖片填滿
+          <select id="objectFit">
+            <option value="">不變更</option>
+            <option value="contain">完整顯示</option>
+            <option value="cover">填滿裁切</option>
+            <option value="fill">拉伸填滿</option>
+          </select>
+        </label>
+        <label>圖片焦點
+          <select id="objectPosition">
+            <option value="">不變更</option>
+            <option value="left top">左上</option><option value="center top">上中</option><option value="right top">右上</option>
+            <option value="left center">左中</option><option value="center center">正中央</option><option value="right center">右中</option>
+            <option value="left bottom">左下</option><option value="center bottom">下中</option><option value="right bottom">右下</option>
+          </select>
+        </label>
+        <label>背景位置
+          <select id="backgroundPosition">
+            <option value="">不變更</option>
+            <option value="left top">左上</option><option value="center top">上中</option><option value="right top">右上</option>
+            <option value="left center">左中</option><option value="center center">正中央</option><option value="right center">右中</option>
+            <option value="left bottom">左下</option><option value="center bottom">下中</option><option value="right bottom">右下</option>
+          </select>
+        </label>
+        <label>背景尺寸
+          <select id="backgroundSize">
+            <option value="">不變更</option>
+            <option value="cover">填滿裁切</option>
+            <option value="contain">完整顯示</option>
+            <option value="auto">原始尺寸</option>
+          </select>
+        </label>
+        <label>背景顏色 <input id="backgroundColor" type="color" value="#ffffff"></label>
+        <label>圓角
+          <select id="borderRadius"><option value="">不變更</option><option value="0">直角</option><option value="8px">8 px</option><option value="16px">16 px</option><option value="24px">24 px</option><option value="9999px">膠囊</option><option value="50%">圓形</option></select>
+        </label>
+        <label>陰影
+          <select id="boxShadow"><option value="">不變更</option><option value="none">無</option><option value="0 4px 14px rgba(0,0,0,.12)">柔和</option><option value="0 12px 32px rgba(0,0,0,.2)">明顯</option></select>
+        </label>
+      </section>
+      <section>
+        <h3>連結</h3>
+        <label>網址 <input id="linkUrl" type="text" placeholder="https://... 或 about.html"></label>
+        <button id="btnApplyLink" class="full">套用連結</button>
+      </section>
+
+
+
+      <details class="inspector-fold block-layout-fold" id="blockLayoutFold">
+        <summary>區塊／版面工具</summary>
+        <div class="fold-body">
+          <p class="inspector-help">需要移動整組文字、圖片或調整手機上下順序時使用。選取父層只改「選到哪一層」，不會修改網站。</p>
+
+          <div class="block-actions">
+            <button id="btnSelectParentSide" type="button">選取父層</button>
+            <button id="btnSelectWholeBlockSide" type="button" class="accent">選取整個圖文區</button>
+            <button id="btnMoveBlockUpSide" type="button">區塊上移</button>
+            <button id="btnMoveBlockDownSide" type="button">區塊下移</button>
+          </div>
+
+          <div class="block-current">
+            <strong>目前區塊</strong>
+            <span id="blockCurrentLabel">尚未選取</span>
+          </div>
+
+          <div class="mobile-quick-layout">
+            <strong>手機版快速排列</strong>
+            <p>只改 680px 以下，桌機版不變。首頁「關於奇農」會依序排成：文字 → 茶園圖 → 四大理念。</p>
+            <div class="block-actions two">
+              <button id="btnMobileTextFirstQuick" type="button">文字在上・圖片在下</button>
+              <button id="btnMobileImageFirstQuick" type="button">圖片在上・文字在下</button>
+            </div>
+            <button id="btnMobileFollowQuick" type="button" class="full">恢復跟隨原本</button>
+          </div>
+
+          <p id="blockToolHint" class="inspector-help small">先點選標題、文字、圖片或卡片中的任一物件。</p>
+        </div>
+      </details>
+
+      <details class="inspector-fold seo-fold" id="seoFold">
+        <summary>SEO／Google 搜尋設定</summary>
+        <div class="fold-body">
+          <p class="inspector-help">設定目前頁面在 Google 搜尋結果中使用的標題與說明。預設值已依奇農網站內容填好。</p>
+
+          <label>Google 搜尋標題
+            <input id="seoTitle" type="text" maxlength="120" placeholder="Google 搜尋標題">
+          </label>
+          <div class="seo-counter"><span id="seoTitleCount">0</span> 字</div>
+
+          <label>Google 搜尋說明
+            <textarea id="seoDescription" rows="5" maxlength="320" placeholder="Google 搜尋結果下方的說明文字"></textarea>
+          </label>
+          <div class="seo-counter"><span id="seoDescriptionCount">0</span> 字</div>
+
+          <div class="seo-focus">
+            <strong>建議關鍵字方向</strong>
+            <div id="seoFocusKeywords">—</div>
+          </div>
+
+          <div class="seo-search-preview">
+            <div class="seo-preview-site">奇農 CHINON</div>
+            <div id="seoPreviewUrl" class="seo-preview-url">https://tsrcbc.github.io/</div>
+            <div id="seoPreviewTitle" class="seo-preview-title">Google 搜尋標題</div>
+            <div id="seoPreviewDescription" class="seo-preview-description">Google 搜尋說明</div>
+          </div>
+
+          <div class="seo-actions">
+            <button id="btnSaveSeoCurrent" type="button" class="primary">套用本頁 SEO</button>
+            <button id="btnSeoRecommended" type="button">恢復本頁建議</button>
+          </div>
+
+          <button id="btnSeoAllRecommended" type="button" class="full seo-all-btn">
+            一鍵套用 8 頁建議 SEO
+          </button>
+          <p class="inspector-help small">所有修改只先存草稿；正式網站仍需經「發布測試版 → 檢查 → 套用正式網站」。</p>
+        </div>
+      </details>
+
+
+      <details class="inspector-fold analytics-fold" id="analyticsFold">
+        <summary>網站流量／Google Analytics</summary>
+        <div class="fold-body">
+          <p class="inspector-help">建立 GA4 後，只要把「G-」開頭的評估 ID 貼在這裡，一次套用到 8 個正式頁面。</p>
+
+          <label>GA4 評估 ID
+            <input id="gaMeasurementId" type="text" autocomplete="off" spellcheck="false" placeholder="G-XXXXXXXXXX">
+          </label>
+          <div id="gaStatus" class="analytics-status">尚未偵測到 Google Analytics</div>
+          <div id="gaApplyResult" class="analytics-result" aria-live="polite">尚未套用。</div>
+
+          <div class="analytics-actions">
+            <button id="btnApplyGaAll" type="button" class="primary">套用到 8 個頁面</button>
+            <button id="btnRemoveGaAll" type="button">移除全站追蹤</button>
+          </div>
+
+          <div class="analytics-links">
+            <button id="btnOpenAnalytics" type="button">開啟 Google Analytics ↗</button>
+            <button id="btnOpenSearchConsole" type="button">開啟 Search Console ↗</button>
+          </div>
+
+          <div class="analytics-note">
+            <strong>建議 GA4 設定</strong>
+            <span>網站資料串流：<b>https://tsrcbc.github.io/</b></span>
+            <span>加強型評估：<b>開啟</b></span>
+            <span>正式發布後，可到「即時」報表確認有沒有收到自己的瀏覽。</span>
+          </div>
+
+          <p class="inspector-help small">這裡只修改草稿。仍需「① 發布測試版 → ② 檢查 → ③ 套用正式網站」，GA4 才會真正開始收正式站流量。</p>
+        </div>
+      </details>
+
+      <details class="inspector-fold" id="animationFold">
+        <summary>進場動畫</summary>
+        <div class="fold-body">
+          <p class="inspector-help">元素滑進畫面時播放。適合標題、圖片、按鈕與整個內容區塊。</p>
+          <label>動畫效果
+            <select id="entranceEffect">
+              <option value="">無動畫</option>
+              <option value="fade">淡入</option>
+              <option value="fade-up">往上淡入</option>
+              <option value="fade-down">往下淡入</option>
+              <option value="slide-left">從左滑入</option>
+              <option value="slide-right">從右滑入</option>
+              <option value="zoom-in">放大淡入</option>
+              <option value="zoom-out">縮小淡入</option>
+            </select>
+          </label>
+          <label>速度
+            <select id="entranceSpeed">
+              <option value="fast">快</option>
+              <option value="normal" selected>正常</option>
+              <option value="slow">慢</option>
+            </select>
+          </label>
+          <label>延遲
+            <select id="entranceDelay">
+              <option value="0">0 秒</option>
+              <option value="0.2">0.2 秒</option>
+              <option value="0.4">0.4 秒</option>
+              <option value="0.6">0.6 秒</option>
+              <option value="1">1 秒</option>
+            </select>
+          </label>
+          <label>觸發方式
+            <select id="entranceRepeat">
+              <option value="once">第一次進入畫面播放</option>
+              <option value="repeat">每次滑入都播放</option>
+            </select>
+          </label>
+          <div class="fold-buttons">
+            <button id="btnPreviewAnimation" type="button">預覽動畫</button>
+            <button id="btnClearAnimation" type="button">移除動畫</button>
+          </div>
+
+          <div class="motion-preset-box">
+            <strong>全站建議動畫</strong>
+            <span>一般內容：淡入／正常／0.2 秒／只播放一次</span>
+            <span>每頁主視覺：淡入／正常／0.4 秒／只播放一次</span>
+            <span>不套用導覽列、頁尾與小圖示，避免畫面太花。</span>
+            <div id="motionPresetResult" class="motion-preset-result" aria-live="polite">首次開啟 V10.16 保留既有動畫設定，並優化手機載入效能。</div>
+            <button id="btnApplyMotionAll" type="button" class="full accent">重新套用 8 頁建議動畫</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="inspector-fold" id="advancedResponsiveFold">
+        <summary>進階／響應式設定</summary>
+        <div class="fold-body">
+          <section id="mobileLayoutSection">
+        <h4>手機版排版</h4>
+        <p class="inspector-help">只影響手機寬度（680px 以下），桌機版不會改變。</p>
+
+        <label>圖文上下順序
+          <select id="mobileOrder">
+            <option value="">跟隨原本</option>
+            <option value="text-first">文字在上・圖片在下</option>
+            <option value="image-first">圖片在上・文字在下</option>
+          </select>
+        </label>
+
+        <label>手機圖片顯示
+          <select id="mobileImageFit">
+            <option value="">跟隨原本</option>
+            <option value="contain">完整顯示・不裁切</option>
+            <option value="cover">填滿裁切</option>
+          </select>
+        </label>
+
+        <button id="btnMobileRecommended" type="button" class="full accent">
+          推薦：文字在上＋圖片完整顯示
+        </button>
+        <p id="mobileLayoutHint" class="inspector-help small">先點選左右圖文區塊中的文字或圖片。</p>
+      </section>
+        </div>
+      </details>
+
+    </aside>
+  </main>
+
+  <input id="addImageInput" type="file" accept="image/*" hidden>
+  <input id="flowImageInput" type="file" accept="image/*" hidden>
+  <input id="replaceImageInput" type="file" accept="image/*" hidden>
+  <input id="backgroundInput" type="file" accept="image/*" hidden>
+
+
+
+  <dialog id="videoDialog">
+    <div class="dialog-card video-dialog-card">
+      <div class="dialog-head">
+        <strong>YouTube 影片區塊</strong>
+        <button id="btnCloseVideoDialog" type="button">✕</button>
+      </div>
+      <div class="video-form">
+        <label>YouTube 網址
+          <input id="videoUrl" type="text" value="https://youtu.be/QNTl3Amq6W0?si=r0M2rk2oXPRx06I_" placeholder="貼上 YouTube 網址">
+        </label>
+        <label>插入位置
+          <select id="videoPosition">
+            <option value="hero-after">首頁主視覺下方（推薦）</option>
+            <option value="above">目前選取區塊上方</option>
+            <option value="below">目前選取區塊下方</option>
+          </select>
+        </label>
+        <label>小標<input id="videoEyebrow" type="text" value="CHINON STORY"></label>
+        <label>標題<input id="videoTitle" type="text" value="從一片桑葉，到一杯好茶。"></label>
+        <label class="check"><input id="videoShowTitle" type="checkbox" checked> 顯示上方標題</label>
+        <label class="check"><input id="videoAutoplay" type="checkbox" checked> 自動播放</label>
+        <label class="check"><input id="videoMute" type="checkbox" checked> 預設靜音</label>
+        <label class="check"><input id="videoLoop" type="checkbox" checked> 循環播放</label>
+        <label class="check"><input id="videoControls" type="checkbox" checked> 顯示 YouTube 控制列</label>
+        <label class="check"><input id="videoViewportPlay" type="checkbox" checked> 滑到影片附近才載入／播放</label>
+        <p class="video-note">YouTube 自動播放通常需要靜音；若勾選自動播放，系統會自動套用靜音以提高成功率。</p>
+      </div>
+      <div class="dialog-actions">
+        <button id="btnCancelVideo" type="button">取消</button>
+        <button id="btnInsertVideo" type="button" class="primary">插入影片</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="draftHistoryDialog">
+    <div class="dialog-card">
+      <div class="dialog-head">
+        <strong id="draftHistoryTitle">草稿版本</strong>
+        <button id="btnCloseDraftHistory" type="button">✕</button>
+      </div>
+      <p class="draft-help">這裡保留手動儲存與重新載入前的版本。恢復版本不會直接改正式網站。</p>
+      <div id="draftHistoryList" class="draft-history-list"></div>
+      <div class="dialog-actions">
+        <button id="btnSaveVersionNow" type="button" class="primary">現在建立版本</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="selfCheckDialog">
+    <div class="dialog-card">
+      <div class="dialog-head"><strong>V10 系統檢查</strong><button id="btnCloseSelfCheck" type="button">✕</button></div>
+      <div id="selfCheckResults" class="self-check-results">尚未執行。</div>
+      <div class="dialog-actions"><button id="btnRunSelfCheck" type="button" class="primary">重新檢查</button></div>
+    </div>
+  </dialog>
+
+  <dialog id="publishDialog">
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-head"><strong id="publishTitle">發布設定</strong><button value="cancel">✕</button></div>
+      <p id="publishIntro">第一次發布需要 GitHub Token。</p>
+      <div class="grid2">
+        <label>GitHub Owner<input id="publishOwner" value="TSRCBC"></label>
+        <label>Repository<input id="publishRepo" value="TSRCBC.github.io"></label>
+        <label>Branch<input id="publishBranch" value="main"></label>
+        <label>GitHub Token<input id="publishToken" type="password" placeholder="github_pat_..."></label>
+      </div>
+      <label class="check"><input id="rememberToken" type="checkbox"> 記住這台電腦的 Token</label>
+      <div id="publishProgress" class="publish-progress"></div>
+      <div id="baselineConflictActions" class="baseline-conflict-actions" hidden>
+        <div class="baseline-conflict-note">
+          目前草稿會完整保留。只有在你確認 GitHub 上的新版本可以由目前草稿繼續編輯時，才使用下方同步。
+        </div>
+        <button id="btnSyncBaselineKeepDraft" type="button">保留草稿並同步最新版本</button>
+      </div>
+      <div class="dialog-actions">
+        <button value="cancel">取消</button>
+        <button id="btnDoPublish" type="button" class="primary">開始</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="editor.js?v=1160"></script>
+  <script>
+    window.setTimeout(function(){
+      var expected='V10.16 MOBILE PERFORMANCE';
+      if(window.CHINON_ACTIVE_BUILD!==expected){
+        var s=document.getElementById('status');
+        if(s) s.textContent='版本載入異常：HTML 已更新，但 JavaScript 仍是舊快取。請按 Ctrl + Shift + R。';
+        var b=document.getElementById('buildLabel');
+        if(b){ b.textContent='快取版本不一致'; b.style.color='#ff8b8b'; }
+      }
+    },900);
+  </script>
+</body>
+</html>
