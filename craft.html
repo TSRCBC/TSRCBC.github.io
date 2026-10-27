@@ -12,7 +12,45 @@ gtag('config', 'G-0HFR5HDN82');
   <title>桑葉茶製程｜GABA桑茶採摘・發酵・烘焙｜奇農</title>
   <link rel="icon" type="image/png" href="assets/chinon-logo.png">
   <link rel="stylesheet" href="styles.css">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Iansui&amp;family=Klee+One:wght@400;600&amp;family=LXGW+WenKai+TC:wght@400;700&amp;family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&amp;family=Noto+Serif+TC:wght@400;500;600;700;800;900&amp;family=Yuji+Syuku&amp;family=Zen+Kurenaido&amp;display=swap" data-chinon-fonts="1"><meta name="chinon-page-id" content="craft.html"></head>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Iansui&amp;family=Klee+One:wght@400;600&amp;family=LXGW+WenKai+TC:wght@400;700&amp;family=Noto+Sans+TC:wght@300;400;500;600;700;800;900&amp;family=Noto+Serif+TC:wght@400;500;600;700;800;900&amp;family=Yuji+Syuku&amp;family=Zen+Kurenaido&amp;display=swap" data-chinon-fonts="1"><meta name="chinon-page-id" content="craft.html"><style id="chinon-site-effects">
+[data-chinon-entrance].chinon-anim-ready{
+  opacity:0;
+  transition-property:opacity,transform;
+  transition-timing-function:cubic-bezier(.22,.8,.28,1);
+  will-change:opacity,transform;
+}
+[data-chinon-entrance="fade"].chinon-anim-ready{transform:none}
+[data-chinon-entrance="fade-up"].chinon-anim-ready{transform:translateY(28px)}
+[data-chinon-entrance="fade-down"].chinon-anim-ready{transform:translateY(-28px)}
+[data-chinon-entrance="slide-left"].chinon-anim-ready{transform:translateX(-36px)}
+[data-chinon-entrance="slide-right"].chinon-anim-ready{transform:translateX(36px)}
+[data-chinon-entrance="zoom-in"].chinon-anim-ready{transform:scale(.94)}
+[data-chinon-entrance="zoom-out"].chinon-anim-ready{transform:scale(1.06)}
+[data-chinon-entrance].chinon-anim-ready.chinon-in{opacity:1;transform:none}
+[data-chinon-entrance-speed="fast"]{transition-duration:.45s}
+[data-chinon-entrance-speed="normal"],[data-chinon-entrance]:not([data-chinon-entrance-speed]){transition-duration:.7s}
+[data-chinon-entrance-speed="slow"]{transition-duration:1s}
+[data-chinon-entrance-delay="0"]{transition-delay:0s}
+[data-chinon-entrance-delay="0.2"]{transition-delay:.2s}
+[data-chinon-entrance-delay="0.4"]{transition-delay:.4s}
+[data-chinon-entrance-delay="0.6"]{transition-delay:.6s}
+[data-chinon-entrance-delay="1"]{transition-delay:1s}
+
+.chinon-video-block{box-sizing:border-box;padding:56px 24px;width:100%}
+.chinon-video-block .chinon-video-inner{width:min(1120px,100%);margin:0 auto}
+.chinon-video-block .chinon-video-heading{text-align:center;margin:0 auto 24px}
+.chinon-video-block .chinon-video-eyebrow{margin:0 0 8px;font-size:12px;letter-spacing:.22em;font-weight:700;color:#58733d}
+.chinon-video-block .chinon-video-title{margin:0;font-size:clamp(26px,3vw,42px);line-height:1.3;font-weight:500}
+.chinon-video-block .chinon-video-shell{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;border-radius:24px;background:#121212;box-shadow:0 18px 50px rgba(54,45,28,.12)}
+.chinon-video-block iframe{display:block;width:100%;height:100%;border:0}
+@media(max-width:680px){
+  .chinon-video-block{padding:34px 16px}
+  .chinon-video-block .chinon-video-heading{margin-bottom:18px}
+  .chinon-video-block .chinon-video-shell{border-radius:16px}
+}
+@media(prefers-reduced-motion:reduce){
+  [data-chinon-entrance].chinon-anim-ready{opacity:1!important;transform:none!important;transition:none!important}
+}</style><meta name="chinon-motion-preset" content="v1"></head>
 <body>
 <header class="site-header">
   <div class="container nav-wrap">
@@ -42,7 +80,7 @@ gtag('config', 'G-0HFR5HDN82');
   <section class="subhero warm">
     <img src="assets/uploads/v10-mv9d54pn-1.webp" alt="製茶堅持" decoding="async" loading="eager" fetchpriority="high">
     <div class="subhero-overlay"></div>
-    <div class="container subhero-content">
+    <div class="container subhero-content" data-chinon-entrance="fade" data-chinon-entrance-speed="normal" data-chinon-entrance-delay="0.4" data-chinon-entrance-repeat="once">
       <div class="eyebrow">CRAFT</div>
       <h1 style="font-family: &quot;Klee One&quot;, cursive; text-shadow: rgba(0, 0, 0, 0.3) 0px 4px 10px; font-size: 58.4px;">製茶堅持</h1>
       <p>從一片桑葉，到一杯茶。</p>
@@ -50,7 +88,7 @@ gtag('config', 'G-0HFR5HDN82');
   </section>
 
   <section class="section intro-narrow">
-    <div class="container">
+    <div class="container" data-chinon-entrance="fade" data-chinon-entrance-speed="normal" data-chinon-entrance-delay="0.2" data-chinon-entrance-repeat="once">
       <h2 style="font-family: &quot;Klee One&quot;, cursive; text-shadow: rgba(0, 0, 0, 0.3) 0px 4px 10px; font-size: 35.9px;">天然・純粹・用心</h2>
       <p style="font-size: 20px;">從一片桑葉開始，細心走過採摘、製作、栽培與風味調整。<br>五大製茶堅持，串起奇農對原料、工藝與品質的每一份講究。<br>把自然留在茶裡，也把安心與溫潤帶進每天的生活。</p>
     </div>
@@ -59,7 +97,7 @@ gtag('config', 'G-0HFR5HDN82');
   <section class="section paper-section">
     <div class="container craft-list">
       
-    <article class="craft-row">
+    <article class="craft-row" data-chinon-entrance="fade" data-chinon-entrance-speed="normal" data-chinon-entrance-delay="0.2" data-chinon-entrance-repeat="once">
       <div class="craft-image"><img src="assets/uploads/v10-mv9d54pn-2.webp" alt="原料堅持" loading="lazy" decoding="async" style="object-fit: contain; object-position: center center;"></div>
       <div class="craft-text">
         <div class="step-no">01</div>
@@ -68,7 +106,7 @@ gtag('config', 'G-0HFR5HDN82');
       </div>
     </article>
     
-    <article class="craft-row reverse">
+    <article class="craft-row reverse" data-chinon-entrance="fade" data-chinon-entrance-speed="normal" data-chinon-entrance-delay="0.2" data-chinon-entrance-repeat="once">
       <div class="craft-image"><img src="assets/uploads/v10-mv9d54pn-3.webp" alt="手工採摘" loading="lazy" decoding="async" style="object-fit: contain;"></div>
       <div class="craft-text">
         <div class="step-no">02</div>
@@ -77,7 +115,7 @@ gtag('config', 'G-0HFR5HDN82');
       </div>
     </article>
     
-    <article class="craft-row">
+    <article class="craft-row" data-chinon-entrance="fade" data-chinon-entrance-speed="normal" data-chinon-entrance-delay="0.2" data-chinon-entrance-repeat="once">
       <div class="craft-image"><img src="assets/uploads/v10-mvizk0lp-7.webp" alt="手工製作" loading="lazy" decoding="async" style="object-fit: contain;"></div>
       <div class="craft-text">
         <div class="step-no">03</div>
@@ -86,7 +124,7 @@ gtag('config', 'G-0HFR5HDN82');
       </div>
     </article>
     
-    <article class="craft-row reverse">
+    <article class="craft-row reverse" data-chinon-entrance="fade" data-chinon-entrance-speed="normal" data-chinon-entrance-delay="0.2" data-chinon-entrance-repeat="once">
       <div class="craft-image"><img src="assets/uploads/v10-mv9d54pn-5.webp" alt="天然無毒" loading="lazy" decoding="async" style="object-fit: contain;"></div>
       <div class="craft-text">
         <div class="step-no">04</div>
@@ -95,7 +133,7 @@ gtag('config', 'G-0HFR5HDN82');
       </div>
     </article>
     
-    <article class="craft-row">
+    <article class="craft-row" data-chinon-entrance="fade" data-chinon-entrance-speed="normal" data-chinon-entrance-delay="0.2" data-chinon-entrance-repeat="once">
       <div class="craft-image"><img src="assets/uploads/v10-mvizk0lp-8.webp" alt="更甘更甜" loading="lazy" decoding="async" style="object-fit: contain;"></div>
       <div class="craft-text">
         <div class="step-no">05</div>
@@ -146,4 +184,48 @@ gtag('config', 'G-0HFR5HDN82');
 
 <script src="main.js"></script>
 
-</body></html>
+<script id="chinon-site-effects-runtime">
+(function(){
+  function initChinonSiteEffects(){
+    var reduced=false;
+    try{ reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+
+    document.querySelectorAll('[data-chinon-entrance]').forEach(function(el){
+      if(el.__chinonEntranceBound) return;
+      el.__chinonEntranceBound=true;
+      el.classList.add('chinon-anim-ready');
+      if(reduced || !('IntersectionObserver' in window)){ el.classList.add('chinon-in'); return; }
+      var repeat=el.getAttribute('data-chinon-entrance-repeat')==='repeat';
+      var io=new IntersectionObserver(function(entries){
+        entries.forEach(function(entry){
+          if(entry.isIntersecting){
+            entry.target.classList.add('chinon-in');
+            if(!repeat) io.unobserve(entry.target);
+          }else if(repeat){
+            entry.target.classList.remove('chinon-in');
+          }
+        });
+      },{threshold:.16,rootMargin:'0px 0px -4% 0px'});
+      io.observe(el);
+    });
+
+    document.querySelectorAll('iframe[data-chinon-youtube-lazy="1"][data-chinon-youtube-src]').forEach(function(frame){
+      if(frame.__chinonYoutubeBound) return;
+      frame.__chinonYoutubeBound=true;
+      var load=function(){
+        var src=frame.getAttribute('data-chinon-youtube-src');
+        if(src && (!frame.getAttribute('src') || frame.getAttribute('src')==='about:blank')) frame.setAttribute('src',src);
+      };
+      if(!('IntersectionObserver' in window)){ load(); return; }
+      var io=new IntersectionObserver(function(entries){
+        entries.forEach(function(entry){
+          if(entry.isIntersecting){ load(); io.unobserve(frame); }
+        });
+      },{rootMargin:'240px 0px',threshold:.01});
+      io.observe(frame);
+    });
+  }
+  window.CHINON_SITE_INIT=initChinonSiteEffects;
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',initChinonSiteEffects,{once:true});
+  else initChinonSiteEffects();
+})();</script></body></html>
