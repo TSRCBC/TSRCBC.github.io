@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+
+Disallow: /editor/
+Disallow: /preview/
+
+Sitemap: https://tsrcbc.github.io/sitemap.xml
